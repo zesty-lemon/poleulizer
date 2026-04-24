@@ -67,6 +67,11 @@ coverage.xml
 *.hypothesis/
 .pytest_cache/
 
+# Claude
+CLAUDE.md
+.claude/
+.claude/settings.local.json
+
 # Translations
 *.mo
 *.pot
@@ -200,13 +205,4 @@ log/
 
 # Coverage reports
 coverage/
-
-
-# trained models
-
-trained_models/random_forest/sandbox/
-
-# Claude
-CLAUDE.md
-.claude/
-.claude/settings.local.json
+*.md
