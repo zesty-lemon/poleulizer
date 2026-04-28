@@ -11,6 +11,5 @@ def initalize_project():
     # ----- Download GIS Pole Layers
     build_pole_catalog.main()
 
-
 if __name__ == "__main__":
     initalize_project()
