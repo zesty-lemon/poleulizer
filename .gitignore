@@ -207,3 +207,4 @@ log/
 coverage/
 *.md
 
+/info_and_research/junk_dump.py
