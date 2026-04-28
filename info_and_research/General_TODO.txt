@@ -1,6 +1,13 @@
 Need
-- Work on 
+- Work on project setup
+- Downloading datasets should be one script
+- Creating the pole -> ID database should be done once at the annotation level
+- Workflow to onboard a new route needs to be established.
+- Just drag into new directory?
+- new and unprocessed routes. maybe move to processed directory
+- Need a source of truth for processed routes and ability to delete stale data for routes we don't need anymore
 
+- Lookup for an individual gps coordinate
 Nice To Have
 
 - Encapsulate all the dataloads into one script initialize.py that pulls all the data from the server
