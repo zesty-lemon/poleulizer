@@ -1,0 +1,9 @@
+Need
+- Work on 
+
+Nice To Have
+
+- Encapsulate all the dataloads into one script initialize.py that pulls all the data from the server
+    Lets someone onboard to the project very easily
+
+Done

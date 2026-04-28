@@ -1,0 +1,12 @@
+This file is a step by step running method for this project.
+
+1) Download images from annotations file
+2) I need to reference a unique identifier for each pole
+This can be done by downloading vermont gis layers. There are 3, one for each utility. Need to download and merge them together.
+
+Outstanding Questions:
+
+Output format
+
+I was thinking GIS layer of poles with the condition as an attribute
+
