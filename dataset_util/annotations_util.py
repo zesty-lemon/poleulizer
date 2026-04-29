@@ -7,7 +7,7 @@ the per-side rigid-obstacle labels.
 
 import xml.etree.ElementTree as ET
 from pathlib import Path
-
+import config.constants as c
 import pandas as pd
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -76,11 +76,14 @@ def load_annotations(xml_paths: list[Path] | None = None) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def load_pole_annotations(xml_paths: list[Path] | None = None) -> pd.DataFrame:
+    all_annotations = load_annotations(xml_paths)
+    pole_df = all_annotations[all_annotations['right_rigid_type'] == str(c.UTILITY_POLE)]
+    return pole_df
+
 if __name__ == "__main__":
-    df = load_annotations()
+    df = load_pole_annotations()
     print(f"loaded {len(df)} annotations from {df.batch.nunique()} batch(es)")
     print(df.head())
     rigid = df[df.right_rigid_type.notna() | df.left_rigid_type.notna()]
     print(f"\n{len(rigid)} annotations with a rigid-class label on either side")
-
-# Todo: return the image names, not the web paths. We don't care about those at this point.
