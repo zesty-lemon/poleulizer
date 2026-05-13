@@ -5,13 +5,19 @@ the per-side rigid-obstacle labels.
 
 """
 
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
-import config.constants as c
-import pandas as pd
 
+# Make `config` importable when this file is executed directly as a script.
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_ARCHIVE = SCRIPT_DIR.parent.parent / "data" / "route_annotations" / "onboarded_routes"
+REPO_ROOT = SCRIPT_DIR.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+import config.constants as c  # noqa: E402
+import pandas as pd  # noqa: E402
+
+DEFAULT_ARCHIVE = REPO_ROOT.parent / "data" / "route_annotations" / "onboarded_routes"
 
 def _clean(text: str | None) -> str | None:
     """Treat the literal string 'None' (the schema's null sentinel) as a real None."""
