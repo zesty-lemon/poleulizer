@@ -303,7 +303,7 @@ def main() -> int:
     if args.dry_run:
         print("dry-run: querying feature counts")
         any_failed = False
-        for utility_key in args.utilities:
+        for utility_key in args.util:
             spec = LAYERS[utility_key]
             try:
                 count = fetch_count(session, spec.url)
@@ -319,7 +319,7 @@ def main() -> int:
     per_utility_summary: dict[str, dict[str, Any]] = {}
     any_failed = False
 
-    for utility_key in args.utilities:
+    for utility_key in args.util:
         spec = LAYERS[utility_key]
         print(f"[{spec.utility}] starting ({spec.url})")
         try:
@@ -348,15 +348,20 @@ def main() -> int:
 
     df = pd.DataFrame(all_rows)
 
-    # Uniqueness is important. If there is a pole_id collision we want to fail with an error
-    duplicated = df[df["pole_id"].duplicated(keep=False)]
-    if not duplicated.empty:
+    # GMP's POLETAG is not strictly unique — replacement poles can re-use a
+    # tag number, so we get a small number of pole_id collisions (~0.05% of
+    # the GMP layer). The downstream identity scheme requires pole_id to be a
+    # primary key, so we drop later-seen duplicates (keep first) and report
+    # the count. Lost poles fall to provisional IDs at match time.
+    before_dedupe = len(df)
+    df = df.drop_duplicates(subset="pole_id", keep="first").reset_index(drop=True)
+    dropped_duplicates = before_dedupe - len(df)
+    if dropped_duplicates > 0:
         print(
-            f"error: {len(duplicated)} rows share a pole_id. Sample:",
+            f"warn: dropped {dropped_duplicates} duplicate pole_id row(s) "
+            f"(GMP POLETAG re-use on replacement poles)",
             file=sys.stderr,
         )
-        print(duplicated.head(10).to_string(), file=sys.stderr)
-        return 1
 
     # Write summary & parquet file to disc
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -366,6 +371,7 @@ def main() -> int:
     summary = {
         "fetched_at": fetched_at,
         "total_rows": int(len(df)),
+        "dropped_duplicates": int(dropped_duplicates),
         "by_utility": per_utility_summary,
     }
     summary_path = out_dir / "poles_summary.json"

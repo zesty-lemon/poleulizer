@@ -81,6 +81,8 @@ def load_pole_annotations(xml_paths: list[Path] | None = None) -> pd.DataFrame:
     pole_df = all_annotations[all_annotations['right_rigid_type'] == str(c.UTILITY_POLE)]
     return pole_df
 
+
+
 if __name__ == "__main__":
     df = load_pole_annotations()
     print(f"loaded {len(df)} annotations from {df.batch.nunique()} batch(es)")

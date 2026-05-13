@@ -1,7 +1,10 @@
 Need
 - Read in xml route annotations into one file
 - Lookup for an individual gps coordinate
-Nice To Have
+
+
+- two tasks: coming up with images of a pole and getting an id for each pole.
+
 
 Done
 - Work on project setup
