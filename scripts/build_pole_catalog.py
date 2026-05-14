@@ -27,22 +27,10 @@ DEFAULT_OUT = DATA_DIR / "pole_catalog"
 
 sys.path.insert(0, str(REPO_ROOT))
 from config import constants  # noqa: E402
+from dataset_util.annotations_util import _clean, _to_float  # noqa: E402
 from util.geohash import encode_geohash  # noqa: E402
 
 UTILITY_POLE_CODE = str(constants.UTILITY_POLE)
-
-
-def _clean(text: str | None) -> str | None:
-    """Treat the literal string 'None' (the schema's null sentinel) as a real None."""
-    if text is None:
-        return None
-    s = text.strip()
-    return None if s == "" or s.lower() == "none" else s
-
-
-def _to_float(text: str | None) -> float | None:
-    s = _clean(text)
-    return float(s) if s is not None else None
 
 
 def extract_poles(xml_path: Path) -> list[dict]:

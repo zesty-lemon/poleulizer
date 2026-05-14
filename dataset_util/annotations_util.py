@@ -82,7 +82,12 @@ def load_annotations(xml_paths: list[Path] | None = None) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def load_pole_annotations(xml_paths: list[Path] | None = None) -> pd.DataFrame:
+def load_right_pole_annotations(xml_paths: list[Path] | None = None) -> pd.DataFrame:
+    """Annotations whose RIGHT-side rigid label is a utility pole.
+
+    Left-side poles are intentionally excluded for now — extend this when the
+    left side comes into scope.
+    """
     all_annotations = load_annotations(xml_paths)
     pole_df = all_annotations[all_annotations['right_rigid_type'] == str(c.UTILITY_POLE)]
     return pole_df
@@ -90,7 +95,7 @@ def load_pole_annotations(xml_paths: list[Path] | None = None) -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    df = load_pole_annotations()
+    df = load_right_pole_annotations()
     print(f"loaded {len(df)} annotations from {df.batch.nunique()} batch(es)")
     print(df.head())
     rigid = df[df.right_rigid_type.notna() | df.left_rigid_type.notna()]
