@@ -283,7 +283,7 @@ def main() -> int:
             return 2
         xml_files = sorted(inbox_dir.glob("*.xml"))
         if not xml_files:
-            print(f"nothing to process: no XML files in {inbox_dir}")
+            print(f"nothing to process: no XML files in {inbox_dir}. Download .xml files using Maplyzer UI and upload to this directory.")
             return 0
 
     if args.dry_run:
