@@ -68,6 +68,10 @@ def load_annotations(xml_paths: list[Path] | None = None) -> pd.DataFrame:
     Defaults to a single hardcoded XML from the onboarded archive — replace
     with the full glob (`sorted(DEFAULT_ARCHIVE.glob('*.xml'))`) when you want
     every onboarded route at once.
+
+    Returns in order present in the original XML file
+
+    The top of the dataframe is the EARLIEST photos, the bottom is the LATEST
     """
     if xml_paths is None:
         xml_paths = [
@@ -79,7 +83,13 @@ def load_annotations(xml_paths: list[Path] | None = None) -> pd.DataFrame:
     # read all xml files in xml_paths into our dataframe
     for xml_path in xml_paths:
         rows.extend(_read_one(Path(xml_path)))
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    # Composite sort key: session timestamp (suffix) then frame counter (prefix).
+    # Both are fixed-width zero-padded, so lex sort = chronological + route order.
+    return df.sort_values(
+        "filename",
+        key=lambda s: s.str.split("_").str[-1] + s.str.split("_").str[0],
+    ).reset_index(drop=True)
 
 
 def load_right_pole_annotations(xml_paths: list[Path] | None = None) -> pd.DataFrame:
@@ -95,8 +105,12 @@ def load_right_pole_annotations(xml_paths: list[Path] | None = None) -> pd.DataF
 
 
 if __name__ == "__main__":
-    df = load_right_pole_annotations()
-    print(f"loaded {len(df)} annotations from {df.batch.nunique()} batch(es)")
-    print(df.head())
-    rigid = df[df.right_rigid_type.notna() | df.left_rigid_type.notna()]
-    print(f"\n{len(rigid)} annotations with a rigid-class label on either side")
+    # df = load_right_pole_annotations()
+    # print(f"loaded {len(df)} annotations from {df.batch.nunique()} batch(es)")
+    # print(df.head())
+    # rigid = df[df.right_rigid_type.notna() | df.left_rigid_type.notna()]
+    # print(f"\n{len(rigid)} annotations with a rigid-class label on either side")
+
+    all_annotations = load_annotations()
+    print(all_annotations.head())
+
