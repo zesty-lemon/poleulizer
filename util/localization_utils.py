@@ -98,6 +98,14 @@ def in_fov(
     return  in_view
 
 
+def retrieve_gps_track(image_name: str) -> float:
+    exif_info = read_exif(image_name)
+    gps_info = exif_info['GPSInfo']
+
+    source_heading = gps_info["GPSTrack"]
+    return source_heading
+
+
 def read_exif(image_name: str) -> dict:
     """
     Open a street_images JPG by filename and return its EXIF tag block.
@@ -155,9 +163,15 @@ if __name__ == "__main__":
     # A known Batch-5 center frame
     # # test we get back the GPSInfo block.
     sample_frame = "000001223389_ROW_20240619.120109.jpg"
+
+    print("Test gps track read")
+    print(retrieve_gps_track(sample_frame))
+
+    print("Test image exif read")
     exif = read_exif(sample_frame)
     gps = exif.get("GPSInfo", {})
     print(f"read_exif({sample_frame!r}):")
     print(f"  top-level keys: {list(exif.keys())}")
     print(f"  GPSTrack    = {gps.get('GPSTrack')}")
     print(f"  GPSLatitude = {gps.get('GPSLatitude')} {gps.get('GPSLatitudeRef')}")
+

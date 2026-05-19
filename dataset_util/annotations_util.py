@@ -84,6 +84,7 @@ def load_annotations(xml_paths: list[Path] | None = None) -> pd.DataFrame:
     for xml_path in xml_paths:
         rows.extend(_read_one(Path(xml_path)))
     df = pd.DataFrame(rows)
+    
     # Composite sort key: session timestamp (suffix) then frame counter (prefix).
     # Both are fixed-width zero-padded, so lex sort = chronological + route order.
     return df.sort_values(
