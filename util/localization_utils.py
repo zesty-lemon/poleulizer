@@ -31,9 +31,8 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     point_1 = (lat1, lon1)
     point_2 = (lat2, lon2)
 
-    distance_km = haversine(point_1,point_2)
-
-    return distance_km
+    distance_m = haversine(point_1, point_2, unit=Unit.METERS)
+    return distance_m
 
 
 def bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -79,8 +78,8 @@ def in_fov(
     :return: True if the pole is inside (view_yaw +/- half_fov) AND closer than r_max
     """
     # Compute range via haversine_m; early-reject if range > r_max.
-    range = haversine_m(source_lat, source_lon, pole_lat, pole_lon)
-    if range > r_max:
+    range_m = haversine_m(source_lat, source_lon, pole_lat, pole_lon)
+    if range_m > r_max:
         return False
 
     # Compute bearing_world via bearing_deg(source -> pole).
@@ -134,6 +133,24 @@ if __name__ == "__main__":
     # source_b is roughly north-northeast of source_a -> bearing should be ~20-30 deg.
     bearing = bearing_deg(*source_a, *source_b)
     print(f"bearing_deg({source_a} -> {source_b}) = {bearing:.2f} deg CW from N")
+
+    # in_fov: treat source_a as the source pose, source_b as a candidate pole.
+    # source_b sits at bearing ~27.46 deg from source_a, range ~60 m. Sweep the
+    # source's heading and which camera we ask about, and check the cone gate.
+    pole_lat, pole_lon = source_b
+    print("in_fov sanity checks (pole bearing ~27.5 deg from source, range ~60 m):")
+    cases = [
+        # (label,                     heading, view_yaw, half_fov, r_max, expected)
+        ("heading at pole, center cam",  27.46,  0.0,    15.0,    140.0, True),   # pole dead ahead -> in cone
+        ("heading north, center cam",     0.0,  0.0,    15.0,    140.0, False),  # pole 27.5 deg right -> outside center cone
+        ("heading north, right cam",      0.0, 30.0,    15.0,    140.0, True),   # pole 27.5 deg right -> inside right cone (centered at +30)
+        ("heading away from pole",      207.46, 0.0,    15.0,    140.0, False),  # pole behind -> outside
+        ("heading at pole, r_max=30 m",  27.46, 0.0,    15.0,     30.0, False),  # range 60 > r_max 30 -> rejected
+    ]
+    for label, heading, yaw, half, rmax, expected in cases:
+        got = in_fov(*source_a, heading, pole_lat, pole_lon, yaw, half, rmax)
+        mark = "OK " if got == expected else "FAIL"
+        print(f"  [{mark}] {label:35s} -> {got}  (expected {expected})")
 
     # A known Batch-5 center frame
     # # test we get back the GPSInfo block.
