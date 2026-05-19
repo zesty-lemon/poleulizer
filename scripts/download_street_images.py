@@ -56,7 +56,7 @@ def parse_frame_views(xml_path: Path, views: tuple[str, ...]) -> list[FrameView]
     """Walk the XML and return one FrameView per (annotation, requested view).
 
     Deduplicates by filename across the whole batch — two annotations that
-    reference the same underlying JPG (bus slowed and the same frame was
+    reference the same underlying JPG (source vehicle slowed and the same frame was
     captured twice) collapse into a single download.
     """
     batch_name = xml_path.stem

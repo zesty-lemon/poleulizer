@@ -2,7 +2,7 @@ Week 1 — Forward-projection pipeline (forward camera only)
 
 # Inputs (per frame, per pole)
 #   pole_lat, pole_lon              from VAIL annotation
-#   bus_lat, bus_lon, bus_heading   from VAIL <location> at that frame
+#   source_lat, source_lon, source_heading   from VAIL <location> at that frame
 #   POLE_HEIGHT_M  = 12.0           placeholder until VAIL gives per-pole height
 #   FOV_DEG        = 30.0           placeholder horizontal FOV (±15°)
 #   IMG_W, IMG_H                    JPG dimensions
@@ -10,24 +10,24 @@ Week 1 — Forward-projection pipeline (forward camera only)
 #   FOCAL_PX                        derived from FOV + IMG_W
 #   CX, CY                          principal point (placeholder = IMG_W/2, IMG_H/2)
 
-def project_pole_to_forward_view(pole_lat, pole_lon, bus_lat, bus_lon, bus_heading):
+def project_pole_to_forward_view(pole_lat, pole_lon, source_lat, source_lon, source_heading):
 
-    # 1. bus -> pole geodesic
-    bearing_world = bearing(bus_lat, bus_lon, pole_lat, pole_lon)     # deg from north, CW
-    range_m       = haversine_m(bus_lat, bus_lon, pole_lat, pole_lon)
+    # 1. source -> pole geodesic
+    bearing_world = bearing(source_lat, source_lon, pole_lat, pole_lon)     # deg from north, CW
+    range_m       = haversine_m(source_lat, source_lon, pole_lat, pole_lon)
 
-    # 2. bearing relative to where the bus is pointing
-    bearing_rel = normalize_deg(bearing_world - bus_heading)          # -180..+180
+    # 2. bearing relative to where the source is pointing
+    bearing_rel = normalize_deg(bearing_world - source_heading)          # -180..+180
 
-    # 3. early reject: not in front of bus, or outside forward cone
+    # 3. early reject: not in front of source, or outside forward cone
     if abs(bearing_rel) > FOV_DEG / 2:   return None
     if range_m > R_MAX:                  return None                  # R_MAX placeholder 80m
 
-    # 4. pole position in bus-body frame (x forward, y left)
+    # 4. pole position in source-body frame (x forward, y left)
     x_b = range_m * cos(radians(bearing_rel))
-    y_b = range_m * sin(radians(bearing_rel)) * -1   # right of bus = -y in body frame
+    y_b = range_m * sin(radians(bearing_rel)) * -1   # right of source = -y in body frame
 
-    # 5. bus-body -> camera frame (camera at height CAM_HEIGHT_M, pitch CAM_PITCH_RAD)
+    # 5. source-body -> camera frame (camera at height CAM_HEIGHT_M, pitch CAM_PITCH_RAD)
     #    base of pole sits on ground -> z_world = 0 -> z_cam_base = -CAM_HEIGHT_M
     #    top of pole at z_world = POLE_HEIGHT_M  -> z_cam_top  = POLE_HEIGHT_M - CAM_HEIGHT_M
     x_c     = x_b                                    # forward camera, no yaw
@@ -38,7 +38,7 @@ def project_pole_to_forward_view(pole_lat, pole_lon, bus_lat, bus_lon, bus_headi
     y_c_bot, x_c_bot = rotate_pitch(y_c_bot, x_c, CAM_PITCH_RAD)
 
     # 6. pinhole projection
-    u      = CX + FOCAL_PX * (-y_b)    / x_c                          # right-of-bus -> +u
+    u      = CX + FOCAL_PX * (-y_b)    / x_c                          # right-of-source -> +u
     v_top  = CY + FOCAL_PX *  y_c_top  / x_c_top
     v_bot  = CY + FOCAL_PX *  y_c_bot  / x_c_bot
     height_px = v_bot - v_top
@@ -49,7 +49,7 @@ def project_pole_to_forward_view(pole_lat, pole_lon, bus_lat, bus_lon, bus_headi
 
 # Week 1 validation harness
 def validate():
-    df = load_right_pole_annotations()                                # has bus + labeled pole
+    df = load_right_pole_annotations()                                # has source + labeled pole
     samples = pick_random(df, n=20)
     for row in samples:
         # the labeled frame is closest-approach; walk back 2-4 frames to find one
@@ -58,7 +58,7 @@ def validate():
             prior = frame_at(row.batch, row.frame_index - offset)
             pred  = project_pole_to_forward_view(
                 row.right_rigid_lat, row.right_rigid_lon,
-                prior.bus_lat, prior.bus_lon, prior.bus_heading,
+                prior.source_lat, prior.source_lon, prior.source_heading,
             )
             if pred:
                 draw_marker(prior.filename_center, pred)              # crosshair + height bar
@@ -70,7 +70,7 @@ def validate():
 Notes on what's hand-wavy:
 
 - bearing_rel sign convention assumes heading is degrees-from-north CW and the
-  y-axis of the bus body is left-positive. Sanity-check this against one frame
+  y-axis of the source body is left-positive. Sanity-check this against one frame
   before trusting it.
 
 - The pitch rotation is the only place the camera mounting angle actually

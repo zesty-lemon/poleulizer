@@ -53,6 +53,38 @@ def bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return (bearing + 360) % 360
 
 
+def in_fov(
+    source_lat: float,
+    source_lon: float,
+    source_heading: float,
+    pole_lat: float,
+    pole_lon: float,
+    view_yaw: float,
+    half_fov: float,
+    r_max: float = DISTANCE_CUTOFF_M,
+) -> bool:
+    """
+    Predicate: does the pole at (pole_lat, pole_lon) fall inside the cone of
+    a single camera view, given the source pose?
+
+    :param source_lat:     source latitude  (degrees)
+    :param source_lon:     source longitude (degrees)
+    :param source_heading: source heading,   degrees CW from True North (EXIF GPSTrack)
+    :param pole_lat:    labeled pole latitude  (degrees)
+    :param pole_lon:    labeled pole longitude (degrees)
+    :param view_yaw:    where this camera's optical axis points relative to
+                        source heading, deg. center=0, left=negative, right=positive
+    :param half_fov:    half the camera's horizontal FOV, degrees
+    :param r_max:       drop the pole if the source is farther than this (meters)
+    :return: True if the pole is inside (view_yaw +/- half_fov) AND closer than r_max
+    """
+    # TODO: compute range via haversine_m; early-reject if range > r_max.
+    # TODO: compute theta_world via bearing_deg(source -> pole).
+    # TODO: theta_rel = normalize_pm180(theta_world - source_heading).
+    # TODO: return abs(theta_rel - view_yaw) <= half_fov.
+    return False
+
+
 def read_exif(image_name: str) -> dict:
     """
     Open a street_images JPG by filename and return its EXIF tag block.
@@ -79,15 +111,15 @@ def read_exif(image_name: str) -> dict:
 if __name__ == "__main__":
     # Tests
 
-    # Two consecutive bus-pose samples from Batch-5 (~8 m apart in real life).
-    bus_a = (44.41150478488889, -72.01815109669444)
-    bus_b = (44.411983286574646, -72.01780297878402)
-    dist = haversine_m(*bus_a, *bus_b)
-    print(f"haversine_n({bus_a}, {bus_b}) = {dist:.6f} km  ({dist * 1000:.2f} m)")
+    # Two consecutive source-pose samples from Batch-5 (~8 m apart in real life).
+    source_a = (44.41150478488889, -72.01815109669444)
+    source_b = (44.411983286574646, -72.01780297878402)
+    dist = haversine_m(*source_a, *source_b)
+    print(f"haversine_n({source_a}, {source_b}) = {dist:.6f} km  ({dist * 1000:.2f} m)")
 
-    # bus_b is roughly north-northeast of bus_a -> bearing should be ~20-30 deg.
-    bearing = bearing_deg(*bus_a, *bus_b)
-    print(f"bearing_deg({bus_a} -> {bus_b}) = {bearing:.2f} deg CW from N")
+    # source_b is roughly north-northeast of source_a -> bearing should be ~20-30 deg.
+    bearing = bearing_deg(*source_a, *source_b)
+    print(f"bearing_deg({source_a} -> {source_b}) = {bearing:.2f} deg CW from N")
 
     # A known Batch-5 center frame
     # # test we get back the GPSInfo block.

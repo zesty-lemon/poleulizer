@@ -1,8 +1,8 @@
-Over five weeks, I'll build a per-pole localization pipeline. I will take VAIL-annotated bus dashcam frames and, for every labeled pole, produce the set of (frame, camera view, bbox) observations across the three forward cameras — each tagged with a stable per-pole ID. Condition assessment was split off as a separate task at the 2026-05-13 meeting and is out of scope; this project ends at "given a pole, here are all the bboxes."
+Over five weeks, I'll build a per-pole localization pipeline. I will take VAIL-annotated source dashcam frames and, for every labeled pole, produce the set of (frame, camera view, bbox) observations across the three forward cameras — each tagged with a stable per-pole ID. Condition assessment was split off as a separate task at the 2026-05-13 meeting and is out of scope; this project ends at "given a pole, here are all the bboxes."
 
 High Level Plan:
 
-Week 1: Build the three-camera forward-projection pipeline (center, forward-left, forward-right). Given a pole's lat/lon, bus pose, and per-camera intrinsics + off-axis angle, output a predicted (u, v, scale) per camera. Validate visually on a sample of Batch-5 frames.
+Week 1: Build the three-camera forward-projection pipeline (center, forward-left, forward-right). Given a pole's lat/lon, source pose, and per-camera intrinsics + off-axis angle, output a predicted (u, v, scale) per camera. Validate visually on a sample of Batch-5 frames.
 Week 2: Compute visibility windows. For each VAIL-labeled pole, walk backwards from the labeled frame through earlier frames and record every (frame, view) where the pole falls inside a camera's FOV cone. Validate against the closest-approach labels — every labeled pole should have a non-empty window.
 Week 3: Fine-tune a detector on the weak labels from the visibility windows and stand up the FULL pipeline end-to-end with placeholder bbox matching, so Weeks 4–5 are quality work on a working system.
 Week 4: Multi-pole frames. Implement Hungarian assignment between predicted pixel positions and detected bboxes for frames where multiple poles' visibility windows overlap. Evaluate against a small manual bbox set.
@@ -10,7 +10,7 @@ Week 5: Aggregate per-pole observations into the final parquet table keyed by (p
 
 The Localization Problem:
 
-VAIL annotates each pole once, at closest approach — and at closest approach the pole is perpendicular to the bus heading, so it's outside the forward-camera FOV. The labeled frame is the one frame in the sequence where the labeled pole cannot be seen. To see it, we walk backwards. The visibility window is the contiguous range of earlier frames where the pole is still in a forward camera's cone.
+VAIL annotates each pole once, at closest approach — and at closest approach the pole is perpendicular to the source heading, so it's outside the forward-camera FOV. The labeled frame is the one frame in the sequence where the labeled pole cannot be seen. To see it, we walk backwards. The visibility window is the contiguous range of earlier frames where the pole is still in a forward camera's cone.
 
 Per-pole pipeline (for each VAIL-labeled pole P):
 1. Compute P's visibility window by walking back from the labeled frame, checking bearing/range against each camera's FOV cone.
@@ -24,7 +24,7 @@ General Notes:
 
 Image downloader and pole catalog builder are already built and smoke-tested. The catalog is keyed entirely by geohash-9 of the VAIL-provided coords — same physical pole across batches → same ~5m geohash cell → same pole_id. No state-utility database lookup, no match gate, no natural-id fallback. The earlier GMP/VEC/WEC fetcher and the 10m-gate match logic are parked in temp_junk/ and can be reintroduced as a post-process "promotion pass" later if the project ever needs canonical utility IDs.
 
-Camera setup is three forward-facing dashcams: center, forward-left, forward-right. There are no true side cameras — left and right are still forward, just angled off-axis. This is exactly why walking backwards works: the bus drives toward each labeled pole, the pole is in one of the forward cones for several frames before closest approach, and the labeled frame itself sits at the far end of the window.
+Camera setup is three forward-facing dashcams: center, forward-left, forward-right. There are no true side cameras — left and right are still forward, just angled off-axis. This is exactly why walking backwards works: the source drives toward each labeled pole, the pole is in one of the forward cones for several frames before closest approach, and the labeled frame itself sits at the far end of the window.
 
 VAIL labels at most one pole per side per frame, so multi-pole frames don't come from a single annotation — they come from overlapping visibility windows of multiple distinct labeled poles. The Hungarian assignment in Week 4 is what handles that.
 
@@ -34,15 +34,15 @@ Full Timeline with Deliverables:
 
 WEEK 1 — Forward-projection pipeline
 
-Main track: For each of the three cameras, implement (lat, lon) + bus pose + camera intrinsics + per-camera off-axis angle + extrinsics → predicted (u, v, height_in_pixels). Validate visually on ~20 Batch-5 frames using known labeled poles: project the pole into the frame at, say, two frames before closest approach, and check the projection lands roughly where a pole is actually visible in the image.
+Main track: For each of the three cameras, implement (lat, lon) + source pose + camera intrinsics + per-camera off-axis angle + extrinsics → predicted (u, v, height_in_pixels). Validate visually on ~20 Batch-5 frames using known labeled poles: project the pole into the frame at, say, two frames before closest approach, and check the projection lands roughly where a pole is actually visible in the image.
 
-Calibration is the biggest unknown coming in. Camera intrinsics and extrinsics aren't documented in the VAIL XML and have to come from Kamiku/VAIL — see open questions. Placeholder values (±15° FOV, median pole height ~12 m, mounting at bus roof height) until I get real numbers.
+Calibration is the biggest unknown coming in. Camera intrinsics and extrinsics aren't documented in the VAIL XML and have to come from Kamiku/VAIL — see open questions. Placeholder values (±15° FOV, median pole height ~12 m, mounting at source roof height) until I get real numbers.
 
 Deliverable: Working three-camera projection script + visual validation on ~20 frames + a written list of what I still need from VAIL to make the projection accurate.
 
 WEEK 2 — Visibility windows
 
-For every VAIL-labeled pole in Batch-5 (and any additional onboarded batches by then), walk backwards through the frame sequence from the labeled frame. At each step: compute bearing and range from bus to pole, check each camera's FOV cone, drop frames where range > r_max (placeholder 80 m). Record (frame, view, bearing, range, confidence) for every qualifying pair. Stop when the pole exits every cone or range exceeds the cutoff.
+For every VAIL-labeled pole in Batch-5 (and any additional onboarded batches by then), walk backwards through the frame sequence from the labeled frame. At each step: compute bearing and range from source to pole, check each camera's FOV cone, drop frames where range > r_max (placeholder 80 m). Record (frame, view, bearing, range, confidence) for every qualifying pair. Stop when the pole exits every cone or range exceeds the cutoff.
 
 Validate against the existing closest-approach labels — every labeled pole should produce a non-empty window in at least one of the three views. Poles with empty windows indicate either a projection bug or a bad VAIL coord; both are worth investigating.
 
@@ -66,7 +66,7 @@ Deliverable: Final matching logic + precision/recall numbers on the held-out man
 
 WEEK 5 — Aggregation + final output
 
-Emit the deliverable parquet at data/localization/observations.parquet, keyed by (pole_id, frame_id, view), with columns: pole_lat/lon, bus_lat/lon/heading, bbox_x/y/w/h, range_m, detection_confidence, batch. The reverse view ("for pole X, give me every supporting frame") is a one-line GROUP BY.
+Emit the deliverable parquet at data/localization/observations.parquet, keyed by (pole_id, frame_id, view), with columns: pole_lat/lon, source_lat/lon/heading, bbox_x/y/w/h, range_m, detection_confidence, batch. The reverse view ("for pole X, give me every supporting frame") is a one-line GROUP BY.
 
 Short methodology writeup: what the visibility-window math does, how the pipeline composes, what the manual evaluation set says about precision/recall, what's deferred (unlabeled poles, condition, catalog promotion).
 
@@ -82,9 +82,9 @@ The camera questions are the top blocker — without intrinsics and extrinsics t
 
 Camera-side (VTrans / Kamiku / VAIL):
 - Camera intrinsics for center, forward-left, forward-right: focal length, principal point, distortion coefficients.
-- Camera extrinsics: rigid transform from each camera to the bus body frame (mounting height, pitch, yaw, off-axis angle for L/R).
+- Camera extrinsics: rigid transform from each camera to the source body frame (mounting height, pitch, yaw, off-axis angle for L/R).
 - FOV cone width per view — estimate ±15° each as placeholder until measured.
-- Are these standard across the bus fleet, or do I need per-bus calibration?
+- Are these standard across the source fleet, or do I need per-source calibration?
 
 Project-side (decide myself, but worth noting):
 - Pole height assumption for the forward-projection height check. GMP's POLEHEIGHT column gives per-pole values (35/40/45 ft typical) but VAIL labels don't carry pole height. Use a median (~12 m) until intrinsics are accurate enough that height matters.

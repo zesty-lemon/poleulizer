@@ -1,6 +1,6 @@
 """Read VAIL annotation XMLs from onboarded_routes/ into a flat DataFrame.
 
-Returns columns from annotation xml: frame ID, three view URLs, bus GPS, and
+Returns columns from annotation xml: frame ID, three view URLs, source GPS, and
 the per-side rigid-obstacle labels.
 
 """
@@ -51,8 +51,8 @@ def _read_one(xml_path: Path) -> list[dict]:
             "src_center": _grab_filename(ann.findtext("source/src_center")),
             "src_left": _grab_filename(ann.findtext("source/src_left")),
             "src_right": _grab_filename(ann.findtext("source/src_right")),
-            "bus_lat": _to_float(ann.findtext("location/latitude")),
-            "bus_lon": _to_float(ann.findtext("location/longitude")),
+            "source_lat": _to_float(ann.findtext("location/latitude")),
+            "source_lon": _to_float(ann.findtext("location/longitude")),
         }
         for side in ("right", "left"):
             row[f"{side}_rigid_type"] = _clean(ann.findtext(f"tags/{side}/rigid/type"))
