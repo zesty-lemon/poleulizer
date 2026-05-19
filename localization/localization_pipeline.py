@@ -1,45 +1,96 @@
+from pathlib import Path
+
+import pandas as pd
+
 from dataset_util import annotations_util
 from util import localization_utils
-
+from util.geohash import encode_geohash
 
 MAX_WALK_BACK = 20
 POLE_TYPE = "2"
 
-def localize_poles():
-    # Annotations in Route Order
-    df = annotations_util.load_annotations()
-    print(df.columns)
+# Center camera placeholder geometry; measured intrinsics to come.
+CENTER_YAW_DEG = 0.0
+CENTER_HALF_FOV_DEG = 15.0
 
-    for row in df.itertuples():
-        # Only stop for annotated poles
-        if row.right_rigid_type != POLE_TYPE:
+REPO_ROOT = Path(__file__).resolve().parent.parent
+OBS_OUT_PATH = REPO_ROOT.parent / "data" / "localization" / "observations.parquet"
+
+
+def localize_poles() -> pd.DataFrame:
+    """Build the (pole_id, frame_id) observation table for every right-labeled pole,
+    using the center camera only."""
+    df = annotations_util.load_annotations().reset_index(drop=True)
+    print(f"loaded {len(df)} annotations across {df.batch.nunique()} batch(es)")
+
+    heading_cache: dict[str, float] = {}
+    rows: list[dict] = []
+
+    for label_row in df.itertuples():
+        if label_row.right_rigid_type != POLE_TYPE:
             continue
-        # walk backwards from this pole's frame
-        for offset in range(1, MAX_WALK_BACK):
-            i = row.Index - offset
-            if i < 0:
+        pole_lat = label_row.right_rigid_lat
+        pole_lon = label_row.right_rigid_lon
+        if pd.isna(pole_lat) or pd.isna(pole_lon):
+            continue
+        pole_id = "geohash:" + encode_geohash(pole_lat, pole_lon)
+
+        # Walk back from this pole's label frame; record any frame the pole appears in.
+        for offset in range(1, MAX_WALK_BACK + 1):
+            prior_pos = label_row.Index - offset
+            if prior_pos < 0:
+                break
+            candidate = df.iloc[prior_pos]
+            if candidate["batch"] != label_row.batch:
                 break
 
-            # row is the pole
-            # candidate is the source image
-            candidate = df.iloc[i]
-            heading_from_exif = localization_utils.retrieve_gps_track(candidate['src_center'])
+            center_fname = candidate["src_center"]
+            if center_fname not in heading_cache:
+                heading_cache[center_fname] = localization_utils.retrieve_gps_track(center_fname)
+            heading = heading_cache[center_fname]
 
-            is_pole_visible = localization_utils.in_fov(
-                source_lat=candidate['source_lat'],
-                source_lon=candidate['source_lon'],
-                source_heading = heading_from_exif,
-                pole_lat=row.right_rigid_lat,
-                pole_lon=row.right_rigid_lon,
-                view_yaw=0,
-                half_fov=15,
-                r_max=140
-            )
+            if not localization_utils.in_fov(
+                source_lat=candidate["source_lat"],
+                source_lon=candidate["source_lon"],
+                source_heading=heading,
+                pole_lat=pole_lat,
+                pole_lon=pole_lon,
+                view_yaw=CENTER_YAW_DEG,
+                half_fov=CENTER_HALF_FOV_DEG,
+            ):
+                continue
+            rows.append({
+                "pole_id":        pole_id,
+                "pole_lat":       pole_lat,
+                "pole_lon":       pole_lon,
+                "frame_id":       candidate["filename"],
+                "image_filename": candidate["src_center"],
+                "source_lat":     candidate["source_lat"],
+                "source_lon":     candidate["source_lon"],
+                "source_heading": heading,
+                "batch":          candidate["batch"],
+            })
 
-            print(f"Is Pole Visible: {is_pole_visible}")
+    obs = pd.DataFrame(rows)
+    # Same physical pole annotated in multiple frames -> same geohash;
+    # collapse repeated (pole_id, frame_id) pairs.
+    obs = obs.drop_duplicates(subset=["pole_id", "frame_id"]).reset_index(drop=True)
+    return obs
+
+
+def main():
+    obs = localize_poles()
+    OBS_OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    obs.to_parquet(OBS_OUT_PATH, compression="gzip", index=False)
+    csv_path = OBS_OUT_PATH.with_suffix(".csv")
+    obs.to_csv(csv_path, index=False)
+
+    print(f"\nwrote {len(obs)} observations to:")
+    print(f"  {OBS_OUT_PATH}")
+    print(f"  {csv_path}")
+    print(f"  unique poles:  {obs.pole_id.nunique()}")
+    print(f"  unique frames: {obs.frame_id.nunique()}")
 
 
 if __name__ == "__main__":
-    localize_poles()
-
-
+    main()

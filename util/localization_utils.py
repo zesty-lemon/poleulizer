@@ -102,7 +102,8 @@ def retrieve_gps_track(image_name: str) -> float:
     exif_info = read_exif(image_name)
     gps_info = exif_info['GPSInfo']
 
-    source_heading = gps_info["GPSTrack"]
+    # GPSTrack comes back as an IFDRational; cast so callers see a real float.
+    source_heading = float(gps_info["GPSTrack"])
     return source_heading
 
 
