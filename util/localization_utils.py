@@ -78,11 +78,25 @@ def in_fov(
     :param r_max:       drop the pole if the source is farther than this (meters)
     :return: True if the pole is inside (view_yaw +/- half_fov) AND closer than r_max
     """
-    # TODO: compute range via haversine_m; early-reject if range > r_max.
-    # TODO: compute theta_world via bearing_deg(source -> pole).
-    # TODO: theta_rel = normalize_pm180(theta_world - source_heading).
-    # TODO: return abs(theta_rel - view_yaw) <= half_fov.
-    return False
+    # Compute range via haversine_m; early-reject if range > r_max.
+    range = haversine_m(source_lat, source_lon, pole_lat, pole_lon)
+    if range > r_max:
+        return False
+
+    # Compute bearing_world via bearing_deg(source -> pole).
+    # What is the bearing between the source and pole (relative to a 360 degree compass)
+    bearing_world = bearing_deg(source_lat, source_lon, pole_lat, pole_lon)
+
+    # Compute relative_bearing by subtracting source heading and normalizing
+    # "where is the pole, relative to the direction the source vehicle is pointing?"
+    bearing_rel = normalize_pm180(bearing_world - source_heading)
+
+    # Bearing relaive to the direction the camera is pointing
+    bearing_camera = abs(bearing_rel - view_yaw)
+
+    # Is the bearing within the cameras FOV?
+    in_view = bearing_camera <= half_fov
+    return  in_view
 
 
 def read_exif(image_name: str) -> dict:
