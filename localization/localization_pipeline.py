@@ -11,7 +11,7 @@ POLE_TYPE = "2"
 
 # Center camera placeholder geometry; measured intrinsics to come.
 CENTER_YAW_DEG = 0.0
-CENTER_HALF_FOV_DEG = 15.0
+CENTER_HALF_FOV_DEG = 10.0
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OBS_OUT_PATH = REPO_ROOT.parent / "data" / "localization" / "observations.parquet"
@@ -21,9 +21,13 @@ def localize_poles() -> pd.DataFrame:
     """Build the (pole_id, frame_id) observation table for every right-labeled pole,
     using the center camera only."""
     df = annotations_util.load_annotations().reset_index(drop=True)
+    # 1-indexed position of each frame within its batch, matching the annotation tool's
+    # frame counter. Write a frame_number into the output for visual lookup.
+    df["frame_number"] = df.groupby("batch").cumcount() + 1
     print(f"loaded {len(df)} annotations across {df.batch.nunique()} batch(es)")
 
     heading_cache: dict[str, float] = {}
+    pole_index_by_id: dict[str, int] = {}
     rows: list[dict] = []
 
     for label_row in df.itertuples():
@@ -34,6 +38,11 @@ def localize_poles() -> pd.DataFrame:
         if pd.isna(pole_lat) or pd.isna(pole_lon):
             continue
         pole_id = "geohash:" + encode_geohash(pole_lat, pole_lon)
+        # Temporary 1, 2, 3... counter assigned in order of first appearance.
+        # Easier to manually track while clicking through observations than the geohash.
+        if pole_id not in pole_index_by_id:
+            pole_index_by_id[pole_id] = len(pole_index_by_id) + 1
+        pole_index = pole_index_by_id[pole_id]
 
         # Walk back from this pole's label frame; record any frame the pole appears in.
         for offset in range(1, MAX_WALK_BACK + 1):
@@ -60,6 +69,8 @@ def localize_poles() -> pd.DataFrame:
             ):
                 continue
             rows.append({
+                "pole_index":     pole_index,
+                "frame_number":   int(candidate["frame_number"]),
                 "pole_id":        pole_id,
                 "pole_lat":       pole_lat,
                 "pole_lon":       pole_lon,
@@ -74,7 +85,9 @@ def localize_poles() -> pd.DataFrame:
     obs = pd.DataFrame(rows)
     # Same physical pole annotated in multiple frames -> same geohash;
     # collapse repeated (pole_id, frame_id) pairs.
-    obs = obs.drop_duplicates(subset=["pole_id", "frame_id"]).reset_index(drop=True)
+    obs = obs.drop_duplicates(subset=["pole_id", "frame_id"])
+    # Group all observations of pole 1 together, ordered by their frame number, then pole 2, etc.
+    obs = obs.sort_values(["pole_index", "frame_number"]).reset_index(drop=True)
     return obs
 
 
