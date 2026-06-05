@@ -16,6 +16,9 @@ def create_data_dirs():
         print(f"  {'exists' if existed else 'created'}: {path}")
 
 
+# Todo: Add a method to check for the presence of routes perhaps?
+# Todo: Add documentation for where images come from
+
 def initalize_project():
     """
     Download fresh copies of data to /data directory located 1 level above the current project root

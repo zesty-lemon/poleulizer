@@ -31,15 +31,11 @@ sys.path.insert(0, str(REPO_ROOT))
 from detection import detection_util
 
 STREET_IMAGES_DIR = REPO_ROOT.parent / "data" / "street_images"
-OBS_PATH          = REPO_ROOT.parent / "data" / "localization" / "observations.parquet"
-BBOX_OUT_PATH     = REPO_ROOT.parent / "data" / "detection" / "bboxes.parquet"
+OBS_PATH = REPO_ROOT.parent / "data" / "localization" / "observations.parquet"
+BBOX_OUT_PATH = REPO_ROOT.parent / "data" / "detection" / "bboxes.parquet"
 
 # Flush to parquet every N images so a crash doesn't lose the whole batch.
 FLUSH_EVERY = 25
-
-# Wipe bboxes.parquet before running. Use this when prompt/threshold/model/NMS
-# changed and the old cache rows are stale. Leave False for normal resume runs.
-CLEAR_CACHE = False
 
 
 def load_cache() -> pd.DataFrame:
@@ -55,11 +51,21 @@ def save_cache(cache: pd.DataFrame) -> None:
     cache.to_parquet(BBOX_OUT_PATH, compression="gzip", index=False)
 
 
-def main() -> None:
+def run_detection_and_save(clear_cache: bool = True):
+    """
+    Put bounding boxes around all images located by the localization_pipeline.py
+    Assumes localization_pipeline.py has already been run
+    
+    :param clear_cache: # Wipe bboxes.parquet before running. Use this when prompt/threshold/model/NMS
+    changed and the old cache rows are stale. Leave False for normal resume runs.
+
+    :return:
+    """
+
     # 0. Optional cache wipe -- forces every image to be re-detected.
-    if CLEAR_CACHE and BBOX_OUT_PATH.exists():
+    if clear_cache and BBOX_OUT_PATH.exists():
         BBOX_OUT_PATH.unlink()
-        print(f"CLEAR_CACHE=True -- removed {BBOX_OUT_PATH}")
+        print(f"clear_cache=True -- removed {BBOX_OUT_PATH}")
 
     # 1. Figure out which images we need detections for. The set is exactly
     #    the unique image filenames in the localization observations table.
@@ -93,6 +99,7 @@ def main() -> None:
         if not image_path.is_file():
             print(f"  WARN: missing image {image_path}, skipping")
             continue
+
         pending.extend(detection_util.detect_image(image_path, processor, model))
 
         if i % FLUSH_EVERY == 0:
@@ -106,9 +113,13 @@ def main() -> None:
         save_cache(cache)
 
     n_images = cache["image_filename"].nunique()
-    n_boxes  = int((cache["box_index"] >= 0).sum())
+    n_boxes = int((cache["box_index"] >= 0).sum())
     print(f"\nwrote {len(cache)} rows ({n_images} unique images, {n_boxes} detections)")
     print(f"  -> {BBOX_OUT_PATH}")
+
+
+def main() -> None:
+    run_detection_and_save(clear_cache=True)
 
 
 if __name__ == "__main__":
