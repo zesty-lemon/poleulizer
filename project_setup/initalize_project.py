@@ -1,9 +1,7 @@
-from pathlib import Path
-
+from config import paths
 from scripts import build_pole_catalog, download_street_images
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = REPO_ROOT.parent / "data"
+DATA_DIR = paths.DATA_DIR
 DATA_SUBDIRS = ("pole_catalog", "route_annotations", "street_images")
 
 
@@ -30,7 +28,7 @@ def initalize_project():
     # ----- Download Street Images
     download_street_images.main()
 
-    # ----- Download GIS Pole Layers
+    # ----- Build Pole Catalog (geohash labeled poles from onboarded XMLs)
     build_pole_catalog.main()
     print("----- Complete Project Initialization -----")
 

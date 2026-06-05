@@ -18,17 +18,19 @@ from pathlib import Path
 
 import pandas as pd
 
-# Repo-relative path resolution, same pattern as the other scripts.
+# Put the repo root on the path so local packages are importable as a script.
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
-DATA_DIR = REPO_ROOT.parent / "data"
-DEFAULT_INBOX = DATA_DIR / "route_annotations" / "onboarded_routes"
-DEFAULT_OUT = DATA_DIR / "pole_catalog"
-
 sys.path.insert(0, str(REPO_ROOT))
+
 from config import constants  # noqa: E402
+from config import paths  # noqa: E402
 from dataset_util.annotations_util import _clean, _to_float  # noqa: E402
 from util.geohash import encode_geohash  # noqa: E402
+
+# Catalog is built from the onboarded (fully-downloaded) routes.
+DEFAULT_INBOX = paths.ONBOARDED_ROUTES_DIR
+DEFAULT_OUT = paths.POLE_CATALOG_DIR
 
 UTILITY_POLE_CODE = str(constants.UTILITY_POLE)
 

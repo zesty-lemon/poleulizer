@@ -1,5 +1,4 @@
 import math
-from pathlib import Path
 
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
@@ -7,9 +6,9 @@ from PIL.ExifTags import TAGS, GPSTAGS
 from dataset_util import annotations_util
 from haversine import haversine, Unit
 from config import constants as c
+from config import paths
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-STREET_IMAGES_DIR = REPO_ROOT.parent / "data" / "street_images"
+STREET_IMAGES_DIR = paths.STREET_IMAGES_DIR
 
 DISTANCE_CUTOFF_M = 140
 

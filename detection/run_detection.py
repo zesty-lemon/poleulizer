@@ -28,11 +28,12 @@ from tqdm import tqdm
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from config import paths
 from detection import detection_util
 
-STREET_IMAGES_DIR = REPO_ROOT.parent / "data" / "street_images"
-OBS_PATH = REPO_ROOT.parent / "data" / "localization" / "observations.parquet"
-BBOX_OUT_PATH = REPO_ROOT.parent / "data" / "detection" / "bboxes.parquet"
+STREET_IMAGES_DIR = paths.STREET_IMAGES_DIR
+OBS_PATH = paths.OBSERVATIONS_PATH
+BBOX_OUT_PATH = paths.BBOX_PATH
 
 # Flush to parquet every N images so a crash doesn't lose the whole batch.
 FLUSH_EVERY = 25
@@ -54,7 +55,8 @@ def save_cache(cache: pd.DataFrame) -> None:
 def run_detection_and_save(clear_cache: bool = True):
     """
     Put bounding boxes around all images located by the localization_pipeline.py
-    Assumes localization_pipeline.py has already been run
+    Assumes localization_pipeline.py has already been run. Bounding Boxes are saved
+    to bboxes.parquet file.
     
     :param clear_cache: # Wipe bboxes.parquet before running. Use this when prompt/threshold/model/NMS
     changed and the old cache rows are stale. Leave False for normal resume runs.

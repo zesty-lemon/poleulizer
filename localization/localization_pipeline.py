@@ -1,7 +1,6 @@
-from pathlib import Path
-
 import pandas as pd
 
+from config import paths
 from dataset_util import annotations_util
 from util import localization_utils
 from util.geohash import encode_geohash
@@ -13,8 +12,7 @@ POLE_TYPE = "2"
 CENTER_YAW_DEG = 0.0
 CENTER_HALF_FOV_DEG = 10.0
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-OBS_OUT_PATH = REPO_ROOT.parent / "data" / "localization" / "observations.parquet"
+OBS_OUT_PATH = paths.OBSERVATIONS_PATH
 
 
 def localize_poles() -> pd.DataFrame:

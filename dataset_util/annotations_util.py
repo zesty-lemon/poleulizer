@@ -17,7 +17,9 @@ sys.path.insert(0, str(REPO_ROOT))
 import config.constants as c  # noqa: E402
 import pandas as pd  # noqa: E402
 
-DEFAULT_ARCHIVE = REPO_ROOT.parent / "data" / "route_annotations" / "onboarded_routes"
+from config import paths  # noqa: E402
+
+DEFAULT_ARCHIVE = paths.ONBOARDED_ROUTES_DIR
 
 def _clean(text: str | None) -> str | None:
     """Treat the literal string 'None' (the schema's null sentinel) as a real None."""

@@ -22,16 +22,18 @@ from urllib.parse import urlsplit
 import requests
 from tqdm import tqdm
 
-
-# Paths resolve from the script's own location so the script works from any CWD.
+# Put the repo root on the path so `config` is importable when run as a script.
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
-DATA_DIR = REPO_ROOT.parent / "data"
+sys.path.insert(0, str(REPO_ROOT))
+
+from config import paths  # noqa: E402
+
 # Inbox/archive workflow: drop new XMLs into new_routes/, the script processes
 # them and moves only the fully-downloaded ones into onboarded_routes/.
-DEFAULT_INBOX = DATA_DIR / "route_annotations" / "new_routes"
-DEFAULT_ARCHIVE = DATA_DIR / "route_annotations" / "onboarded_routes"
-DEFAULT_OUT = DATA_DIR / "street_images"
+DEFAULT_INBOX = paths.NEW_ROUTES_DIR
+DEFAULT_ARCHIVE = paths.ONBOARDED_ROUTES_DIR
+DEFAULT_OUT = paths.STREET_IMAGES_DIR
 
 # HTTP tuning. BACKOFF_SECONDS is the sleep between retry attempts.
 CHUNK_BYTES = 64 * 1024

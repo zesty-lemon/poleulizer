@@ -1,0 +1,11 @@
+Transferability of project (to another student)
+
+1) Freeze versions of dependencies. Is it possible to freeze DINO model? Would help for transferability/reproducability.
+Requires pulling a specified version down from the server though.
+
+2) Better onboarding script with some error checking. For example - when we pull images from VAIL servers
+we want to check the server is up, images are available, etc etc. With informative warning errors.
+
+3) Ideally save small versions of data as compressed files and include with project. Like one annotated
+route and all the images already downloaded and localization already done etc etc.
+

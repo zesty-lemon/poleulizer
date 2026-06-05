@@ -1,0 +1,18 @@
+# poleulizer dependencies
+# Install with:  pip install -r requirements.txt
+# (geohash, file paths, and the geometry math are stdlib-only — not listed here.)
+
+# --- Data / ingest ---
+pandas==2.3.3          # annotations + catalog + observations DataFrames
+pyarrow==19.0.0        # parquet engine used by pandas (.to_parquet / .read_parquet)
+requests==2.32.3       # downloading POV JPGs in scripts/download_street_images.py
+tqdm==4.67.1           # progress bars (download + detection)
+
+# --- Geometry / image I/O ---
+haversine==2.9.0       # source<->pole distance in util/localization_utils.py
+Pillow==11.1.0         # JPG decode + EXIF GPS reads (PIL)
+
+# --- Detection (Grounding-DINO) ---
+torch==2.10.0          # model backend
+torchvision==0.25.0    # non-max suppression (torchvision.ops.nms)
+transformers==5.9.0    # IDEA-Research/grounding-dino-base loader + processor

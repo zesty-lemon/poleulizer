@@ -32,6 +32,11 @@ Full problem framing: [`documentation/localization_problem.md`](documentation/lo
 
 ---
 
+## Downloading a Route
+This project depends on routes annotated by the maplyzer project. Visit https://maplyzer-annotation.vercel.app
+and select a route. Download the .xml file for that route, and put into the ../data/route_annotations/new_routes
+directory. The project will read this as its primary input for localization/classification of pole.
+
 ## The important jobs (where the work happens)
 
 Each of these is a runnable entry point. Run them in this order.
@@ -99,10 +104,10 @@ poleulizer/
 
 ```python
 import pandas as pd
-from dataset_util.annotations_util import load_annotations, load_pole_annotations
+from dataset_util.annotations_util import load_annotations, load_right_pole_annotations
 
 annotations = load_annotations()                                  # every annotation row
-poles       = load_pole_annotations()                             # just utility-pole rows
+poles       = load_right_pole_annotations()                       # just right-side utility-pole rows
 catalog     = pd.read_parquet("../data/pole_catalog/poles.parquet")
 obs         = pd.read_parquet("../data/localization/observations.parquet")
 bboxes      = pd.read_parquet("../data/detection/bboxes.parquet")
@@ -129,3 +134,4 @@ Generative AI was heavily used to generate documentation after the relevant code
 was reviewed after generation. The primary purpose of extensive documentation is to assist in the transfer
 of this work to a future student to build off of. LLMS were also used as a research tool on tasks such as understanding
 APIs that do not have associated documentation, and crawling state websites to source desired information. 
+Also used to generate requirements.txt to load dependencies. 
