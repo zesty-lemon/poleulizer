@@ -9,3 +9,8 @@ we want to check the server is up, images are available, etc etc. With informati
 3) Ideally save small versions of data as compressed files and include with project. Like one annotated
 route and all the images already downloaded and localization already done etc etc.
 
+4) Right now we check if images are present in cache etc before re-downloading. It would be good to have a toggle
+to force re-downloading of everything. Easy to do - just wipe the directories
+
+5) We are also saving all routes to the same parquet file every time. We should either A) have seperate ones
+or B) Add a route deletion flow that goes and clears them if they aren't needed.
