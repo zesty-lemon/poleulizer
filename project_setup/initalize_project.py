@@ -14,23 +14,33 @@ def create_data_dirs():
         print(f"  {'exists' if existed else 'created'}: {path}")
 
 
-# Todo: Add a method to check for the presence of routes perhaps?
-# Todo: Add documentation for where images come from
+def is_initalized() -> bool:
+    """Return True if the project has already been initialized (all data dirs exist)."""
+    already_initalized = False
 
-def initalize_project():
+    # Check directories have already been created
+    if all((DATA_DIR / name).is_dir() for name in DATA_SUBDIRS):
+        already_initalized = True
+
+    return already_initalized
+
+
+def initalize_project_if_needed(force_reinitalization: bool = False):
     """
-    Download fresh copies of data to /data directory located 1 level above the current project root
+
+    Initial Project Setup. Will not re-run if already run, unless force = true.
+
     :return:
     """
     print("----- Begin Project Initialization -----")
-    create_data_dirs()
 
-    # ----- Download Street Images
-    download_street_images.main()
+    if force_reinitalization or not is_initalized():
+        create_data_dirs()
+    else:
+        print("  already initialized, skipping initial setup")
 
-    # ----- Build Pole Catalog (geohash labeled poles from onboarded XMLs)
-    build_pole_catalog.main()
     print("----- Complete Project Initialization -----")
 
+
 if __name__ == "__main__":
-    initalize_project()
+    initalize_project_if_needed()

@@ -7,7 +7,7 @@ Writes:   data/detection/bboxes.parquet
             marks images that ran but had zero detections, so a re-run skips
             them instead of re-detecting.
 
-Idempotent. To rebuild from scratch (e.g. after changing prompt/threshold),
+Important. To rebuild from scratch (e.g. after changing prompt/threshold),
 delete `bboxes.parquet` first.
 
 Run:
