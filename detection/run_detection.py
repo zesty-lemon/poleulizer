@@ -40,10 +40,29 @@ FLUSH_EVERY = 25
 
 
 def load_cache() -> pd.DataFrame:
-    """Read the existing bbox cache, or return an empty DataFrame if none exists."""
+    """Read the existing bbox cache, or return an empty DataFrame if none exists.
+
+    This is the resume-safe internal helper for the detection loop (missing file
+    means "nothing cached yet, start fresh"). For retrieving finished detections,
+    use load_detections(), which raises if the file is absent.
+    """
     if BBOX_OUT_PATH.exists():
         return pd.read_parquet(BBOX_OUT_PATH)
     return pd.DataFrame()
+
+
+def load_detections() -> pd.DataFrame:
+    """Load the detection bounding boxes (one row per box; box_index == -1 is a
+    zero-detection sentinel row). Key `image_filename` joins to observations.
+
+    Raises FileNotFoundError if detection hasn't been run yet — run
+    detect_poles (the `detect_poles` pipeline step) first.
+    """
+    if not BBOX_OUT_PATH.exists():
+        raise FileNotFoundError(
+            f"No detections at {BBOX_OUT_PATH}; run detect_poles first"
+        )
+    return pd.read_parquet(BBOX_OUT_PATH)
 
 
 def save_cache(cache: pd.DataFrame) -> None:

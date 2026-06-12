@@ -14,3 +14,45 @@ to force re-downloading of everything. Easy to do - just wipe the directories
 
 5) We are also saving all routes to the same parquet file every time. We should either A) have seperate ones
 or B) Add a route deletion flow that goes and clears them if they aren't needed.
+
+6) Defined entry point into the project. All code encapsulated nicely, so it is easy to tun the entire project
+from one file, with methods controlling all core functionality
+
+7) We need to def
+
+
+----------------- Ongoing Questions -----------------
+Need to solve issue of batches. Right now maplyzer organizes into batches that track routes.
+What happens if we re-survey the same route later? Are there multiple batches along the same route?
+Do we want to join into one or keep seperately? Does it matter at all? I could simplify this to just take batches
+as input and asses condition as output, and ignore everything else. in which case
+it doesn't really matter - as long as input is batch and output is condition assessments
+
+We need to define our output. I am assuming this is just an arcGIS layer of poles.
+
+
+----------------- Running Todo -----------------
+
+At this point we have all the code to onboard a new route and run all the detections on it.
+
+Is it now time to
+
+This week:
+Fine tune FOV of images
+Fine tune visual pipeline
+
+Align bounding boxes with poles
+End up with pole -> frame -> bounding boxes
+
+Next Week:
+Choosing the best frame per pole
+
+
+
+----------------- Final Polish -----------------
+1) When onboarding new routes, have a terminal popup that let's you select from the desired routes
+
+2) A fun simple UI using python streamlit that lets you play around with it visually. Drag the routes into it, run the pipeline
+ideally see a few frames of the output, and pop the output into a new window.
+
+3)

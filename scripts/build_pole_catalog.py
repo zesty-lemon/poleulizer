@@ -61,6 +61,20 @@ def extract_poles(xml_path: Path) -> list[dict]:
     return rows
 
 
+def load_pole_catalog() -> pd.DataFrame:
+    """Load the pole catalog (one row per unique pole).
+
+    Raises FileNotFoundError if the catalog hasn't been built yet — run
+    build_pole_catalog (the `build_pole_catalog` pipeline step) first.
+    """
+    if not paths.POLE_CATALOG_PATH.exists():
+        raise FileNotFoundError(
+            f"No pole catalog at {paths.POLE_CATALOG_PATH}; "
+            f"run build_pole_catalog first"
+        )
+    return pd.read_parquet(paths.POLE_CATALOG_PATH)
+
+
 def main() -> int:
     inbox: Path = DEFAULT_INBOX
     out_dir: Path = DEFAULT_OUT

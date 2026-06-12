@@ -44,6 +44,5 @@ def onboard_new_route_and_run_localize_detect(force_reinitalization: bool = Fals
     if detect_poles:
         run_detection_main()
 
-
 if __name__ == "__main__":
     onboard_new_route_and_run_localize_detect()

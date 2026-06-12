@@ -9,6 +9,8 @@ MAX_WALK_BACK = 20
 POLE_TYPE = "2"
 
 # Center camera placeholder geometry; measured intrinsics to come.
+# TODO: Finalize the camera statistics
+
 CENTER_YAW_DEG = 0.0
 CENTER_HALF_FOV_DEG = 10.0
 
@@ -87,6 +89,19 @@ def localize_poles() -> pd.DataFrame:
     # Group all observations of pole 1 together, ordered by their frame number, then pole 2, etc.
     obs = obs.sort_values(["pole_index", "frame_number"]).reset_index(drop=True)
     return obs
+
+
+def load_observations() -> pd.DataFrame:
+    """Load the localization observations table (one row per (pole_id, frame_id)).
+
+    Raises FileNotFoundError if localization hasn't been run yet — run
+    localize_poles (the `localize_poles` pipeline step) first.
+    """
+    if not OBS_OUT_PATH.exists():
+        raise FileNotFoundError(
+            f"No observations at {OBS_OUT_PATH}; run localize_poles first"
+        )
+    return pd.read_parquet(OBS_OUT_PATH)
 
 
 def main():
