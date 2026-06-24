@@ -12,7 +12,9 @@ POLE_TYPE = "2"
 # TODO: Finalize the camera statistics
 
 CENTER_YAW_DEG = 0.0
-CENTER_HALF_FOV_DEG = 10.0
+
+CENTER_HALF_FOV_DEG = 19.5
+
 
 OBS_OUT_PATH = paths.OBSERVATIONS_PATH
 

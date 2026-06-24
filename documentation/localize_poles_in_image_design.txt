@@ -1,0 +1,26 @@
+We need to take our bounding boxes and our located poles and map one to the other
+
+We have bounding boxes drawn around each pole in each image. We also have locations of each pole,
+as well as bearings drawn between the camera car and each pole. We can map the degrees (ex 50 degrees) to predicted
+centers in the image using math.
+
+Using the FOV and predicted bearings to the poles, we take the haversine distance between the projected
+location and the location of bounding boxes, and assign one to the other.
+
+
+Points of consideration:
+
+Poles may be too far away yet show up in bounding boxes
+ - This is probably fixable by just finding the minimum size and cutting boxes smaller than this
+ - Poles are all around the same height, so if we figure out the height/width of a pole at its max distance
+   and then just remove all boxes smaller than this it will be good enough.
+
+Poles on the other side of the road will also have bounding boxes
+ - We may have a scenario where poles are present on left and right sides of the road (we only care about right)
+ - We cannot just remove all poles left of center - scenarios like car going around a curve may have right side
+   poles visible on the "left" side of the image but not the left side of the road itself.
+ - It's possible that if we just enforce close matches this might solve itself
+
+
+ Next Step: Finding which image is the "best" of each pole. likley might be just size related - find the biggest box
+ where the whole pole is included in the frame
