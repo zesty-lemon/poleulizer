@@ -9,12 +9,9 @@ MAX_WALK_BACK = 20
 POLE_TYPE = "2"
 
 # Center camera placeholder geometry; measured intrinsics to come.
-# TODO: Finalize the camera statistics
-
 CENTER_YAW_DEG = 0.0
 
 CENTER_HALF_FOV_DEG = 19.5
-
 
 OBS_OUT_PATH = paths.OBSERVATIONS_PATH
 
