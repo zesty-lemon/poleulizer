@@ -1,8 +1,27 @@
 import pandas as pd
 
 from detection.run_detection import load_detections
-from localization.localization_pipeline import load_observations
+from localization.localization_pipeline import load_observations, CENTER_HALF_FOV_DEG
 from scripts.build_pole_catalog import load_pole_catalog
+from util import localization_utils as lu
+from util.localization_utils import predict_x_px
+
+
+def append_bearings_onto_df_row(pole_row):
+    """
+    Calculate theta (bearing) from each pole to its source lat/long
+    :param pole_row:
+    :return:
+    """
+    theta = lu.relative_bearing_deg(
+        pole_row.source_lat,
+        pole_row.source_lon,
+        pole_row.source_heading,
+        pole_row.pole_lat,
+        pole_row.pole_lon,
+        view_yaw=0.0
+    )
+    return theta
 
 
 def perform_matching():
@@ -19,21 +38,25 @@ def perform_matching():
     real = detections_df[detections_df.box_index >= 0]
     box_by_frame = dict(tuple(real.groupby("image_filename")))  # frame -> its boxes
     cat_by_id = catalog_df.set_index("pole_id")  # pole_id -> catalog row (lookup)
+    #  cat_row = cat_by_id.loc[some_pole_id]
 
     # ----- Match Poles to Bounding Boxes in Each Image -----
-
-    #  cat_row = cat_by_id.loc[some_pole_id]
     for fname in sorted(obs_by_frame):
         # All poles in this frame (from VAIL annotations)
         poles = obs_by_frame[fname]
         # All detected boxes in this frame
         boxes = box_by_frame.get(fname, real.iloc[0:0])  # boxes (empty df if none)
 
-        print(poles)
-        print(boxes)
+        if boxes.empty:
+            continue
 
+        # Get and append theta to each pole from the current frame
+        poles = poles.assign(theta=poles.apply(append_bearings_onto_df_row, axis=1))
 
-        print("meow")
+        # Get and append predicted x pixel values to each pole
+        poles = poles.assign(x_pred=predict_x_px(poles.theta, CENTER_HALF_FOV_DEG))
+
+        
 
 
 if __name__ == "__main__":

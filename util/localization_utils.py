@@ -1,5 +1,4 @@
-import math
-
+import numpy as np
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
 
@@ -34,21 +33,58 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return distance_m
 
 
-def bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+def bearing_deg(lat1, lon1, lat2, lon2):
     """
     Initial great-circle bearing from point 1 to point 2.
+
+    Works on scalars or array-likes (uses numpy), so the same function backs
+    both the per-row FOV gate and vectorized callers.
     :return: degrees clockwise from True North, in the range [0, 360).
     """
-    lat1_rad = math.radians(lat1)
-    lat2_rad = math.radians(lat2)
-    delta_lon_rad = math.radians(lon2 - lon1)
+    lat1_rad = np.radians(lat1)
+    lat2_rad = np.radians(lat2)
+    delta_lon_rad = np.radians(np.subtract(lon2, lon1))
 
-    x = math.sin(delta_lon_rad) * math.cos(lat2_rad)
-    y = (math.cos(lat1_rad) * math.sin(lat2_rad)
-         - math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(delta_lon_rad))
+    x = np.sin(delta_lon_rad) * np.cos(lat2_rad)
+    y = (np.cos(lat1_rad) * np.sin(lat2_rad)
+         - np.sin(lat1_rad) * np.cos(lat2_rad) * np.cos(delta_lon_rad))
 
-    bearing = math.degrees(math.atan2(x, y))
+    bearing = np.degrees(np.arctan2(x, y))
     return (bearing + 360) % 360
+
+
+def relative_bearing_deg(source_lat, source_lon, source_heading,
+                         pole_lat, pole_lon, view_yaw=0.0):
+    """The pole's signed horizontal angle off the camera's optical axis, degrees.
+
+    + = right of the axis, - = left. This is the single source of truth for
+    "theta" — the world bearing source-> pole, minus the vehicle heading and the
+    camera's view_yaw, wrapped to [-180, +180]. Works on scalars or array-likes.
+
+    Used by the FOV gate (in_fov), FOV calibration, and pixel projection.
+
+    :param source_heading: vehicle heading, deg CW from True North (EXIF GPSTrack)
+    :param view_yaw: camera optical axis vs heading (center=0, left<0, right>0)
+    """
+    bearing_world = bearing_deg(source_lat, source_lon, pole_lat, pole_lon)
+    return normalize_pm180(bearing_world - source_heading - view_yaw)
+
+
+def predict_x_px(theta_deg, half_fov_deg, image_width_px=c.IMAGE_WIDTH_PX):
+    """Pixel column where a pole at angle `theta_deg` off the optical axis should
+    appear, under the pinhole (rectilinear) projection.
+
+        x = (W/2) * (1 + tan(theta) / tan(half_fov))
+
+    theta = 0 -> image center (W/2); theta = +half_fov -> right edge (W);
+    theta = -half_fov -> left edge (0). Works on scalars or array-likes.
+
+    :param theta_deg:     pole angle off the camera axis (e.g. from relative_bearing_deg)
+    :param half_fov_deg:  half the camera's horizontal FOV, degrees (the calibrated value)
+    :param image_width_px: image width in pixels (defaults to the dataset constant)
+    """
+    half_w = image_width_px / 2
+    return half_w * (1 + np.tan(np.radians(theta_deg)) / np.tan(np.radians(half_fov_deg)))
 
 
 def in_fov(
@@ -81,20 +117,12 @@ def in_fov(
     if range_m > r_max:
         return False
 
-    # Compute bearing_world via bearing_deg(source -> pole).
-    # What is the bearing between the source and pole (relative to a 360 degree compass)
-    bearing_world = bearing_deg(source_lat, source_lon, pole_lat, pole_lon)
-
-    # Compute relative_bearing by subtracting source heading and normalizing
-    # "where is the pole, relative to the direction the source vehicle is pointing?"
-    bearing_rel = normalize_pm180(bearing_world - source_heading)
-
-    # Bearing relaive to the direction the camera is pointing
-    bearing_camera = abs(bearing_rel - view_yaw)
-
-    # Is the bearing within the cameras FOV?
-    in_view = bearing_camera <= half_fov
-    return  in_view
+    # Pole's angle off the camera axis (shared helper); inside the cone iff
+    # its magnitude is within the half-FOV.
+    bearing_camera = relative_bearing_deg(
+        source_lat, source_lon, source_heading, pole_lat, pole_lon, view_yaw,
+    )
+    return abs(bearing_camera) <= half_fov
 
 
 def retrieve_gps_track(image_name: str) -> float:

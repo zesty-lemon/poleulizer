@@ -48,6 +48,9 @@ Next Week:
 Choosing the best frame per pole
 
 
+----------------- Improving Accuracy -----------------
+1) Tweak the confidence interval of the bounding boxes & drop low confidence ones
+2) 
 
 ----------------- Final Polish -----------------
 1) When onboarding new routes, have a terminal popup that let's you select from the desired routes

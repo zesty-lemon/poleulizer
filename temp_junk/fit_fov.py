@@ -33,6 +33,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from config import paths  # noqa: E402
+from util import localization_utils as lu  # noqa: E402
 
 # Image geometry. Confirmed uniform from EXIF (3840x2160); EXIF carries no
 # focal/FOV/lens tags, only GPS — hence this empirical calibration.
@@ -48,17 +49,15 @@ EARTH_RADIUS_M = 6_371_000.0
 # --------------------------------------------------------------------------- #
 def relative_bearing_deg(obs: pd.DataFrame) -> pd.Series:
     """theta per observation row: the pole's signed horizontal angle off the
-    vehicle heading, in degrees. + = right of axis. Vectorized equivalent of
-    localization_utils.bearing_deg + normalize_pm180."""
-    lat1 = np.radians(obs["source_lat"].to_numpy())
-    lat2 = np.radians(obs["pole_lat"].to_numpy())
-    dlon = np.radians((obs["pole_lon"] - obs["source_lon"]).to_numpy())
-
-    x = np.sin(dlon) * np.cos(lat2)
-    y = np.cos(lat1) * np.sin(lat2) - np.sin(lat1) * np.cos(lat2) * np.cos(dlon)
-    bearing = np.degrees(np.arctan2(x, y)) % 360.0
-
-    theta = (bearing - obs["source_heading"].to_numpy() + 180.0) % 360.0 - 180.0
+    vehicle heading, in degrees. + = right of axis. Thin DataFrame adapter over
+    the shared, array-safe localization_utils.relative_bearing_deg."""
+    theta = lu.relative_bearing_deg(
+        obs["source_lat"].to_numpy(),
+        obs["source_lon"].to_numpy(),
+        obs["source_heading"].to_numpy(),
+        obs["pole_lat"].to_numpy(),
+        obs["pole_lon"].to_numpy(),
+    )
     return pd.Series(theta, index=obs.index)
 
 
