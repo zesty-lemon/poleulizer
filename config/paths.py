@@ -33,3 +33,7 @@ OBSERVATIONS_PATH = LOCALIZATION_DIR / "observations.parquet"
 # Detection bbox cache.
 DETECTION_DIR = DATA_DIR / "detection"
 BBOX_PATH = DETECTION_DIR / "bboxes.parquet"
+
+# Pole<->box matches (one row per expected pole per frame).
+MATCHING_DIR = DATA_DIR / "matching"
+MATCHES_PATH = MATCHING_DIR / "pole_box_matches.parquet"
