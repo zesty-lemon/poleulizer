@@ -83,9 +83,12 @@ def match_frame(fname, poles, boxes):
 
     def row(pole, status, box=None, residual=None):
         return {
+            # Frame IDs: human-readable counter + the actual filename.
+            "frame_number": int(pole.frame_number),
             "image_filename": fname,
-            "pole_id": pole.pole_id,
+            # Pole IDs: human-readable counter + the actual geohash id.
             "pole_index": pole.pole_index,
+            "pole_id": pole.pole_id,
             "box_index": (int(box.box_index) if box is not None else None),
             "theta_deg": float(pole.theta),
             "x_pred": float(pole.x_pred),
@@ -145,9 +148,17 @@ def perform_matching():
     paths.MATCHES_PATH.parent.mkdir(parents=True, exist_ok=True)
     matches.to_parquet(paths.MATCHES_PATH, compression="gzip", index=False)
 
+    # Human-readable CSV mirror (rounded floats) for manual review / comparison
+    # against hand annotations.
+    csv_path = paths.MATCHES_PATH.with_suffix(".csv")
+    matches.round({"theta_deg": 1, "x_pred": 0, "x_box": 0, "residual_px": 1}) \
+           .to_csv(csv_path, index=False)
+
     n_matched = (matches.status == "matched").sum()
     n_poles = len(matches)
-    print(f"wrote {n_poles} pole-rows to {paths.MATCHES_PATH}")
+    print(f"wrote {n_poles} pole-rows to:")
+    print(f"  {paths.MATCHES_PATH}")
+    print(f"  {csv_path}")
     print(f"  matched:          {n_matched} ({n_matched / n_poles:.0%})")
     print(f"  unmatched_no_box: {(matches.status == 'unmatched_no_box').sum()}")
     print(f"  unmatched_edge:   {(matches.status == 'unmatched_edge').sum()}")

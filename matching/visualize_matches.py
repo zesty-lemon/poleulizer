@@ -151,14 +151,46 @@ def visualize_frame(fname: str, save: Path | None = None,
         img.show()
 
 
+def label_boxes_frame(fname: str, save: Path | None = None, boxes=None) -> None:
+    """Draw every detection box labeled with its box_index (annotation aid).
+
+    Use this to fill in the ground-truth template: look at a frame, read off
+    which cyan box number sits on each pole, and record it as that pole's
+    true_box_index. Shows the box NUMBER, deliberately not the algorithm's guess.
+    """
+    if boxes is None:
+        boxes = load_detections()
+
+    box_corners = _box_corners_for_frame(boxes, fname)
+    img = Image.open(paths.STREET_IMAGES_DIR / fname).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    font = _load_font(FONT_SIZE)
+
+    for box_index, (x1, y1, x2, y2) in box_corners.items():
+        draw.rectangle([x1, y1, x2, y2], outline="cyan", width=6)
+        draw.text((x1, max(0, y1 - LABEL_ABOVE_BOX_PX)), f"{box_index}",
+                  fill="cyan", font=font)
+
+    print(f"{fname}: {len(box_corners)} boxes labeled")
+    if save:
+        img.save(save)
+        print(f"saved {save}")
+    else:
+        img.show()
+
+
 def _busiest_matched_frame(matches) -> str:
     """The frame with the most matched poles — a good default to eyeball first."""
     matched = matches[matches.status == "matched"]
     return matched.groupby("image_filename").size().idxmax()
 
 
-def _render_all(out_dir: Path) -> None:
-    """Render every frame in the matches table into out_dir (loads data once)."""
+def _render_all(out_dir: Path, label_boxes: bool = False) -> None:
+    """Render every frame into out_dir (loads data once).
+
+    label_boxes=True renders the box-index annotation aid instead of the match
+    overlay.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     matches = load_matches()
     boxes = load_detections()
@@ -167,7 +199,10 @@ def _render_all(out_dir: Path) -> None:
     print(f"rendering {len(frames)} frames -> {out_dir}")
     for i, fname in enumerate(frames, start=1):
         # Frame filenames already end in .jpg, so reuse them as output names.
-        visualize_frame(fname, out_dir / fname, matches=matches, boxes=boxes)
+        if label_boxes:
+            label_boxes_frame(fname, out_dir / fname, boxes=boxes)
+        else:
+            visualize_frame(fname, out_dir / fname, matches=matches, boxes=boxes)
         if i % 50 == 0:
             print(f"  {i}/{len(frames)}")
     print("done")
@@ -181,11 +216,14 @@ def main() -> int:
                         help="save to this path instead of opening a viewer")
     parser.add_argument("--all", type=Path, default=None, metavar="DIR",
                         help="render every frame in the matches table into DIR")
+    parser.add_argument("--label-boxes", action="store_true",
+                        help="annotation aid: label each box by box_index instead of "
+                             "showing the match overlay")
     args = parser.parse_args()
 
     # Batch mode: render everything and exit.
     if args.all is not None:
-        _render_all(args.all)
+        _render_all(args.all, label_boxes=args.label_boxes)
         return 0
 
     # Single-frame mode: default to the busiest matched frame if none given.
@@ -194,7 +232,10 @@ def main() -> int:
         fname = _busiest_matched_frame(load_matches())
         print(f"no --frame given; using busiest matched frame: {fname}")
 
-    visualize_frame(fname, args.save)
+    if args.label_boxes:
+        label_boxes_frame(fname, args.save)
+    else:
+        visualize_frame(fname, args.save)
     return 0
 
 
