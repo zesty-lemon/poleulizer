@@ -31,7 +31,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from config import paths  # noqa: E402
 from localization.localization_pipeline import load_observations  # noqa: E402
-from matching.matching_pipeline import load_matches  # noqa: E402
+from matching.matching_pipeline import load_matches, match_all  # noqa: E402
 
 TEMPLATE_PATH = paths.MATCHING_DIR / "ground_truth_template.csv"
 
@@ -89,17 +89,35 @@ def _category(true_box, algo_box, pole_visible) -> str:
     return "correct_reject"      # pole not visible; both agree there's no box
 
 
-def compare(ground_truth_path: Path) -> pd.DataFrame:
-    """Score the current matches against a filled-in ground-truth CSV."""
+def _read_truth(ground_truth_path: Path, subset_path: Path | None = None) -> pd.DataFrame:
+    """Load a ground-truth CSV (numeric true_box_index, boolean _visible), optionally
+    restricted to a subset of poles.
+
+    subset_path is a CSV with at least (image_filename, pole_id); only those poles are
+    kept. This is the one place subset filtering happens, so compare/sweep and any
+    caller (e.g. find_isolated_poles) share identical semantics."""
     truth = pd.read_csv(ground_truth_path)
     # Blank cells read as NaN; coerce the box column to numeric.
     truth["true_box_index"] = pd.to_numeric(truth["true_box_index"], errors="coerce")
     # pole_visible is optional (older sheets predate it). Absent -> treat all as
     # not-flagged, which collapses detector_miss back into correct_reject.
     if "pole_visible" in truth.columns:
-        visible = pd.to_numeric(truth["pole_visible"], errors="coerce").fillna(0) == 1
+        truth["_visible"] = pd.to_numeric(truth["pole_visible"], errors="coerce").fillna(0) == 1
     else:
-        visible = pd.Series(False, index=truth.index)
+        truth["_visible"] = False
+
+    if subset_path is not None:
+        subset = pd.read_csv(subset_path)[["image_filename", "pole_id"]].drop_duplicates()
+        n0 = len(truth)
+        truth = truth.merge(subset, on=["image_filename", "pole_id"], how="inner")
+        print(f"subset: scoring {len(truth)}/{n0} poles from {subset_path.name}\n")
+    return truth
+
+
+def compare(ground_truth_path: Path, subset_path: Path | None = None) -> pd.DataFrame:
+    """Score the current matches against a filled-in ground-truth CSV."""
+    truth = _read_truth(ground_truth_path, subset_path)
+    visible = truth["_visible"]
 
     algo = load_matches()[["image_filename", "pole_id", "pole_index", "box_index"]]
 
@@ -154,18 +172,135 @@ def compare(ground_truth_path: Path) -> pd.DataFrame:
     return merged
 
 
+def _prf(counts) -> tuple[float, float, float]:
+    """Precision, recall, F1 on the matcher's 'there is a box' decision, from a
+    dict of category -> count."""
+    cm = counts.get("correct_match", 0)
+    wrong = counts.get("wrong_box", 0)
+    false = counts.get("false_match", 0)
+    missed = counts.get("missed", 0)
+    denom_p = cm + wrong + false
+    denom_r = cm + wrong + missed
+    p = cm / denom_p if denom_p else 0.0
+    r = cm / denom_r if denom_r else 0.0
+    f1 = 2 * p * r / (p + r) if (p + r) else 0.0
+    return p, r, f1
+
+
+def sweep(ground_truth_path: Path, gate_min: float = 0.0, gate_max: float | None = None,
+          gate_step: float = 25.0, metric: str = "f1",
+          target_precision: float | None = None, out: Path | None = None,
+          subset_path: Path | None = None) -> pd.DataFrame:
+    """Precision/recall/F1 as a function of GATE_PX, from a single annotation.
+
+    Runs the matcher ONCE with the gate disabled (gate_px=inf) so every pole's
+    assigned box + residual is known, then re-gates in pandas at each candidate
+    GATE_PX. THETA_MAX and MIN_SCORE are held at their current module values (they
+    change the assignment and would need a re-run per value — see the design doc).
+    """
+    truth = _read_truth(ground_truth_path, subset_path)
+    visible = truth["_visible"]
+
+    # Ungated run: with gate_px=inf every assignable cone pole is 'matched', so we
+    # recover its assigned box_index and residual before any gating.
+    ungated = match_all(gate_px=float("inf"))
+    assigned = ungated[ungated.status == "matched"][
+        ["image_filename", "pole_id", "box_index", "residual_px"]
+    ]
+    merged = truth.merge(assigned, on=["image_filename", "pole_id"], how="left")
+
+    resid = merged["residual_px"]
+    assigned_box = merged["box_index"]
+    true_box = merged["true_box_index"]
+
+    max_resid = float(resid.max()) if resid.notna().any() else 0.0
+    if gate_max is None:
+        gate_max = (int(max_resid // gate_step) + 1) * gate_step
+
+    gates, g = [], gate_min
+    while g <= gate_max + 1e-9:
+        gates.append(round(g, 3))
+        g += gate_step
+
+    records = []
+    for g in gates:
+        # The matcher emits the assigned box only if it's within the gate; an
+        # unassigned pole (residual NaN) stays no-box at every gate.
+        algo_box = assigned_box.where(resid <= g)
+        cats = [_category(t, a, v) for t, a, v in zip(true_box, algo_box, visible)]
+        c = pd.Series(cats).value_counts().to_dict()
+        p, r, f1 = _prf(c)
+        records.append({
+            "gate_px": g,
+            "correct_match": c.get("correct_match", 0),
+            "wrong_box": c.get("wrong_box", 0),
+            "missed": c.get("missed", 0),
+            "false_match": c.get("false_match", 0),
+            "precision": p, "recall": r, "f1": f1,
+        })
+    table = pd.DataFrame(records)
+
+    # ----- Report -----
+    print(f"swept GATE_PX {gates[0]:.0f}..{gates[-1]:.0f} step {gate_step:.0f} "
+          f"over {len(truth)} annotated poles "
+          f"(THETA_MAX / MIN_SCORE held at current values)\n")
+    print(f"  {'gate':>6}  {'cm':>4} {'wrong':>5} {'miss':>4} {'false':>5}   "
+          f"{'prec':>6} {'recall':>6} {'F1':>6}")
+    for r in records:
+        print(f"  {r['gate_px']:6.0f}  {r['correct_match']:4d} {r['wrong_box']:5d} "
+              f"{r['missed']:4d} {r['false_match']:5d}   "
+              f"{r['precision']:6.1%} {r['recall']:6.1%} {r['f1']:6.1%}")
+
+    best = table.loc[table[metric].idxmax()]
+    print(f"\n  best {metric.upper()}: gate={best.gate_px:.0f}  "
+          f"(prec {best.precision:.1%}, recall {best.recall:.1%}, F1 {best.f1:.1%})")
+    if target_precision is not None:
+        ok = table[table.precision >= target_precision]
+        if len(ok):
+            pick = ok.loc[ok.gate_px.idxmax()]  # loosest gate still meeting precision
+            print(f"  loosest gate with precision >= {target_precision:.0%}: "
+                  f"gate={pick.gate_px:.0f}  (recall {pick.recall:.1%}, F1 {pick.f1:.1%})")
+        else:
+            print(f"  no gate reaches precision >= {target_precision:.0%}")
+
+    if out is not None:
+        table.to_csv(out, index=False)
+        print(f"\n  wrote sweep table to {out}")
+    return table
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate matcher vs hand annotation.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("template", help="write the annotation template")
     cmp = sub.add_parser("compare", help="score current matches against filled ground truth")
     cmp.add_argument("ground_truth", type=Path, help="your filled-in ground_truth.csv")
+    cmp.add_argument("--subset", type=Path, default=None,
+                     help="CSV of (image_filename, pole_id) to score only those poles")
+
+    swp = sub.add_parser("sweep", help="precision/recall/F1 vs GATE_PX from one annotation")
+    swp.add_argument("ground_truth", type=Path, help="your filled-in ground_truth.csv")
+    swp.add_argument("--gate-min", type=float, default=0.0)
+    swp.add_argument("--gate-max", type=float, default=None)
+    swp.add_argument("--gate-step", type=float, default=25.0)
+    swp.add_argument("--metric", choices=["f1", "precision", "recall"], default="f1",
+                     help="what the recommended gate maximizes (default f1)")
+    swp.add_argument("--target-precision", type=float, default=None,
+                     help="also report the loosest gate with precision >= this (0-1)")
+    swp.add_argument("--out", type=Path, default=None, help="write the sweep table to CSV")
+    swp.add_argument("--subset", type=Path, default=None,
+                     help="CSV of (image_filename, pole_id) to sweep only those poles")
     args = parser.parse_args()
 
     if args.command == "template":
         write_template()
     elif args.command == "compare":
-        compare(args.ground_truth)
+        compare(args.ground_truth, subset_path=args.subset)
+    elif args.command == "sweep":
+        sweep(args.ground_truth, gate_min=args.gate_min, gate_max=args.gate_max,
+              gate_step=args.gate_step, metric=args.metric,
+              target_precision=args.target_precision, out=args.out,
+              subset_path=args.subset)
     return 0
 
 

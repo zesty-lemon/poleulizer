@@ -7,11 +7,13 @@ from scripts.build_pole_catalog import load_pole_catalog
 from util import localization_utils as lu
 from util.localization_utils import predict_x_px
 
-# Matching policy. GATE_PX ~ 2x the FOV-calibration residual (~78 px); a pole's
-# matched box must land within this many pixels of its prediction. THETA_MAX
-# drops poles near the FOV edge, where the rectilinear model / correspondence
-# break down (see documentation/matching_design.md).
-GATE_PX = 150.0
+# Matching policy. GATE_PX: a pole's matched box must land within this many pixels
+# of its prediction. Originally ~2x the FOV-calibration residual (~78 px) = 150;
+# raised to 225 by the F1-optimal point of the offline sweep against the
+# St Johnsbury ground truth (evaluate.py sweep; recall 47.5%->54.0% for ~1pt
+# precision). THETA_MAX drops poles near the FOV edge, where the rectilinear model
+# / correspondence break down (see documentation/matching_design.md).
+GATE_PX = 225.0
 THETA_MAX = 18.0
 # Drop detector boxes below this confidence before matching (kept raw in
 # bboxes.parquet; filtered here because it's a matching policy, not a data fact).
@@ -65,9 +67,14 @@ def assign_one_to_one(x_pred, x_box):
     return pairs
 
 
-def match_frame(fname, poles, boxes):
+def match_frame(fname, poles, boxes, gate_px=None):
     """Predict, score, assign, and gate one frame. Returns a list of match rows
-    (one per expected pole, including unmatched ones)."""
+    (one per expected pole, including unmatched ones).
+
+    gate_px overrides the module GATE_PX for this call (used by the offline
+    parameter sweep, which runs with gate_px=inf to get every assigned pole's
+    residual before any gating). Defaults to the module GATE_PX."""
+    gate = GATE_PX if gate_px is None else gate_px
     # Predict each pole's pixel column from its angle off the optical axis.
     poles = poles.assign(theta=poles.apply(append_bearings_onto_df_row, axis=1))
     poles = poles.assign(x_pred=predict_x_px(poles.theta, CENTER_HALF_FOV_DEG))
@@ -111,7 +118,7 @@ def match_frame(fname, poles, boxes):
         for pi, bj in assign_one_to_one(x_pred, x_box):
             pole, box = pole_list[pi], box_list[bj]
             residual = abs(pole.x_pred - box.x_box)
-            if residual <= GATE_PX:
+            if residual <= gate:
                 rows.append(row(pole, "matched", box, residual))
                 matched_poles.add(pi)
 
@@ -122,7 +129,11 @@ def match_frame(fname, poles, boxes):
     return rows
 
 
-def perform_matching():
+def match_all(gate_px=None, min_score=MIN_SCORE):
+    """Run the matcher over every frame and return the match table (no writing).
+
+    Shared by perform_matching (default params) and the offline sweep (which
+    passes gate_px=inf to recover every assigned pole's residual pre-gating)."""
     # ----- Load Data -----
     # Pole Observations - Which frames show which pole
     observations_df = load_observations()
@@ -132,7 +143,7 @@ def perform_matching():
     # ----- Build Indexes -----
     obs_by_frame = dict(tuple(observations_df.groupby("image_filename")))  # frame -> its poles
     # Drop zero-detection sentinels and low-confidence boxes.
-    real = detections_df[(detections_df.box_index >= 0) & (detections_df.score >= MIN_SCORE)]
+    real = detections_df[(detections_df.box_index >= 0) & (detections_df.score >= min_score)]
     box_by_frame = dict(tuple(real.groupby("image_filename")))  # frame -> its boxes
 
     # ----- Match Poles to Bounding Boxes in Each Image -----
@@ -140,9 +151,13 @@ def perform_matching():
     for fname in sorted(obs_by_frame):
         poles = obs_by_frame[fname]
         boxes = box_by_frame.get(fname, real.iloc[0:0])  # boxes (empty df if none)
-        all_rows.extend(match_frame(fname, poles, boxes))
+        all_rows.extend(match_frame(fname, poles, boxes, gate_px=gate_px))
 
-    matches = pd.DataFrame(all_rows)
+    return pd.DataFrame(all_rows)
+
+
+def perform_matching():
+    matches = match_all()
 
     # ----- Write -----
     paths.MATCHES_PATH.parent.mkdir(parents=True, exist_ok=True)
