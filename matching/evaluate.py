@@ -114,12 +114,23 @@ def _read_truth(ground_truth_path: Path, subset_path: Path | None = None) -> pd.
     return truth
 
 
-def compare(ground_truth_path: Path, subset_path: Path | None = None) -> pd.DataFrame:
-    """Score the current matches against a filled-in ground-truth CSV."""
+def compare(ground_truth_path: Path, subset_path: Path | None = None,
+            save_path: Path | None = None) -> pd.DataFrame:
+    """Score the current matches against a filled-in ground-truth CSV.
+
+    Prints a report of the useful statistics; with save_path, writes the same
+    report to a .txt file. The report covers: the category breakdown, the matching
+    metrics (precision / recall / F1 / matcher accuracy / detector recall), and a
+    little match geometry + error diagnostics (median residual, the wrong_box angle,
+    and why the misses missed).
+    """
     truth = _read_truth(ground_truth_path, subset_path)
     visible = truth["_visible"]
 
-    algo = load_matches()[["image_filename", "pole_id", "pole_index", "box_index"]]
+    # Pull residual/theta/status too (already in load_matches) so the report can
+    # include geometry + diagnostics, not just the box decision.
+    algo = load_matches()[["image_filename", "pole_id", "pole_index", "box_index",
+                           "residual_px", "theta_deg", "status"]]
 
     # Left-join so every annotated pole is scored, matched or not.
     merged = truth.merge(algo, on=["image_filename", "pole_id"], how="left",
@@ -129,45 +140,62 @@ def compare(ground_truth_path: Path, subset_path: Path | None = None) -> pd.Data
         for t, a, v in zip(merged.true_box_index, merged.box_index, visible)
     ]
 
-    # ----- Report -----
     counts = merged["category"].value_counts()
     total = len(merged)
-
-    print(f"scored {total} annotated poles\n")
-    for cat in ["correct_match", "correct_reject", "detector_miss",
-                "wrong_box", "missed", "false_match"]:
-        n = counts.get(cat, 0)
-        print(f"  {cat:15s} {n:4d}  ({n / total:.0%})")
-
     cm = counts.get("correct_match", 0)
     wrong = counts.get("wrong_box", 0)
     false = counts.get("false_match", 0)
     missed = counts.get("missed", 0)
     reject = counts.get("correct_reject", 0)
     det_miss = counts.get("detector_miss", 0)
-
-    # Matcher accuracy excludes detector_miss: with no box to work from, the
-    # matcher's "no box" is neither a win nor a loss for it.
+    p, r, f1 = _prf(counts)
     matcher_total = total - det_miss
-    if matcher_total:
-        print(f"\n  matcher accuracy: {(cm + reject) / matcher_total:.1%}"
-              f"  (excl. {det_miss} detector misses)")
-
-    # Precision/recall on the matcher's "there is a box" decision.
-    denom_p = cm + wrong + false
-    denom_r = cm + wrong + missed
-    if denom_p:
-        print(f"  match precision:  {cm / denom_p:.1%}")
-    if denom_r:
-        print(f"  match recall:     {cm / denom_r:.1%}")
-
-    # Detection recall: of poles you could see, how many the detector boxed.
-    # Visible poles = those with a true box (detected) + detector_miss (missed).
     detected = cm + wrong + missed
     denom_det = detected + det_miss
+
+    def px(x):
+        return "n/a" if x is None or pd.isna(x) else f"{float(x):.1f}"
+
+    # ----- Build the report once, so print and file are identical -----
+    lines = [f"scored {total} annotated poles"
+             + (f"  (subset: {subset_path.name})" if subset_path is not None else "")]
+
+    lines.append("\ncategory breakdown:")
+    for cat in ["correct_match", "correct_reject", "detector_miss",
+                "wrong_box", "missed", "false_match"]:
+        n = counts.get(cat, 0)
+        lines.append(f"  {cat:15s} {n:4d}  ({n / total:.0%})")
+
+    lines.append("\nmatching metrics:")
+    if cm + wrong + false:
+        lines.append(f"  match precision:  {p:.1%}")
+    if cm + wrong + missed:
+        lines.append(f"  match recall:     {r:.1%}")
+    lines.append(f"  match F1:         {f1:.1%}")
+    if matcher_total:
+        lines.append(f"  matcher accuracy: {(cm + reject) / matcher_total:.1%}"
+                     f"  (excl. {det_miss} detector misses)")
     if denom_det:
-        print(f"  detector recall:  {detected / denom_det:.1%}"
-              f"  ({detected}/{denom_det} visible poles boxed)")
+        lines.append(f"  detector recall:  {detected / denom_det:.1%}"
+                     f"  ({detected}/{denom_det} visible poles boxed)")
+
+    # Match geometry + error diagnostics (from the residual/theta/status columns).
+    matched = merged[merged.status == "matched"]
+    wrongbox = merged[merged.category == "wrong_box"]
+    missed_split = merged.loc[merged.category == "missed", "status"].value_counts()
+    lines.append("\ngeometry & diagnostics:")
+    lines.append(f"  median residual (matched):  {px(matched.residual_px.median())} px")
+    lines.append(f"  wrong_box median |theta|:   {px(wrongbox.theta_deg.abs().median())} deg")
+    split = ", ".join(f"{k} {int(v)}" for k, v in missed_split.items()) or "none"
+    lines.append(f"  missed breakdown:           {split}")
+
+    report = "\n".join(lines)
+    print(report)
+
+    if save_path is not None:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path.write_text(report + "\n")
+        print(f"\nsaved report -> {save_path}")
 
     return merged
 
@@ -277,6 +305,8 @@ def main() -> int:
     cmp.add_argument("ground_truth", type=Path, help="your filled-in ground_truth.csv")
     cmp.add_argument("--subset", type=Path, default=None,
                      help="CSV of (image_filename, pole_id) to score only those poles")
+    cmp.add_argument("--save", type=Path, default=None, metavar="FILE.txt",
+                     help="also write the report to this text file")
 
     swp = sub.add_parser("sweep", help="precision/recall/F1 vs GATE_PX from one annotation")
     swp.add_argument("ground_truth", type=Path, help="your filled-in ground_truth.csv")
@@ -295,7 +325,7 @@ def main() -> int:
     if args.command == "template":
         write_template()
     elif args.command == "compare":
-        compare(args.ground_truth, subset_path=args.subset)
+        compare(args.ground_truth, subset_path=args.subset, save_path=args.save)
     elif args.command == "sweep":
         sweep(args.ground_truth, gate_min=args.gate_min, gate_max=args.gate_max,
               gate_step=args.gate_step, metric=args.metric,
