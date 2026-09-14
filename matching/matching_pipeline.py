@@ -3,7 +3,6 @@ import pandas as pd
 from config import paths
 from detection.run_detection import load_detections
 from localization.localization_pipeline import load_observations, CENTER_HALF_FOV_DEG
-from scripts.build_pole_catalog import load_pole_catalog
 from util import localization_utils as lu
 from util.localization_utils import predict_x_px
 
