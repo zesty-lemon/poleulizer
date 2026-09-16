@@ -103,7 +103,7 @@ def load_observations() -> pd.DataFrame:
     return pd.read_parquet(OBS_OUT_PATH)
 
 
-def main():
+def run_localization_pipeline():
     obs = localize_poles()
     OBS_OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     obs.to_parquet(OBS_OUT_PATH, compression="gzip", index=False)
@@ -116,6 +116,8 @@ def main():
     print(f"  unique poles:  {obs.pole_id.nunique()}")
     print(f"  unique frames: {obs.frame_id.nunique()}")
 
+def main():
+    run_localization_pipeline()
 
 if __name__ == "__main__":
     main()

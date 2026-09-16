@@ -28,7 +28,7 @@ DEFAULT_NMS_IOU = 0.5
 
 
 def load_detector(device: str = DEFAULT_DEVICE):
-    """Build (processor, model) for grounding-DINO. Call once, reuse forever."""
+    """Build (processor, model) for grounding-DINO."""
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     model = AutoModelForZeroShotObjectDetection.from_pretrained(MODEL_ID).to(device)
     model.eval()
@@ -62,8 +62,7 @@ def detect_image(
         target_sizes=[image.size[::-1]],
     )[0]
 
-    # Collapse overlapping boxes on the same pole. Class-agnostic — we only
-    # ever query one prompt, so the label is the same for every detection.
+    # Collapse overlapping boxes on the same pole.
     boxes_t = results["boxes"]
     scores_t = results["scores"]
     labels_list = list(results["labels"])

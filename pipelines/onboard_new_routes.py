@@ -1,6 +1,6 @@
 from scripts.build_pole_catalog import main as build_pole_catalog_main
 from scripts.download_street_images import main as download_street_images_main
-from localization.localization_pipeline import main as localize_poles_main
+from localization.localization_pipeline import run_localization_pipeline
 from detection.run_detection import main as run_detection_main
 from project_setup.initalize_project import initalize_project_if_needed
 from matching.matching_pipeline import perform_matching
@@ -44,19 +44,17 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
 
     # ----- Localize Poles within visible field of each image
     if localize_poles:
-        localize_poles_main()
+        run_localization_pipeline()
 
     # ----- Put bounding boxes around each pole visible in each frame
     if detect_poles:
         run_detection_main()
 
     # ----- Perform Matching
-    # Matches poles to bounding boxes and saves file
     if perform_pole_matching:
         perform_matching()
 
     # ----- Export Deliverable
-    # Pole-centric CSV + per-pole image folders
     if export_poles:
         export(DEFAULT_EXPORT_DIR)
 
