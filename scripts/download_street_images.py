@@ -27,6 +27,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from config import paths  # noqa: E402
+from config.paths import RoutePaths  # noqa: E402
 
 # Inbox/archive workflow: drop new XMLs into new_routes/, the script processes
 # them and moves only the fully-downloaded ones into onboarded_routes/.
@@ -66,7 +67,9 @@ def parse_frame_views(xml_path: Path) -> list[FrameView]:
     frames_by_filename: dict[str, FrameView] = {}
 
     for annotation in root.findall("annotation"):
-        source = annotation.find("source")
+        # Current VAIL export schema: <sources>/src_{center,left,right} (URLs).
+        # The rest of the schema is read in dataset_util/annotations_util.py.
+        source = annotation.find("sources")
         if source is None:
             continue
         for view in VIEWS:
@@ -250,11 +253,23 @@ def archive_xml(xml_path: Path, counts: dict[str, int]) -> bool:
     return True
 
 
-def run_download_street_images_pipeline() -> int:
+def run_download_street_images_pipeline(route: RoutePaths | None = None) -> int:
+    """Download every JPG referenced by the inbox XML(s), archiving each fully-fetched XML.
+
+    With `route`, only that route's XML is processed; if it is not in the inbox
+    (already archived by an earlier run) the step is skipped. Without `route`,
+    every XML in the inbox is processed (CLI behaviour)."""
     if not INBOX_DIR.is_dir():
         print(f"error: inbox dir not found at {INBOX_DIR}", file=sys.stderr)
         return 2
-    xml_files = sorted(INBOX_DIR.glob("*.xml"))
+    if route is not None:
+        xml_files = [INBOX_DIR / route.xml.name] if (INBOX_DIR / route.xml.name).exists() else []
+        if not xml_files:
+            print(f"download skipped: {route.xml.name} is not in the inbox "
+                  f"({'already archived' if route.xml.exists() else 'not found'})")
+            return 0
+    else:
+        xml_files = sorted(INBOX_DIR.glob("*.xml"))
     if not xml_files:
         print(f"nothing to process: no XML files in {INBOX_DIR}. "
               f"Download .xml files using Maplyzer UI and upload to this directory.")

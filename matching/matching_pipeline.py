@@ -1,6 +1,8 @@
+import argparse
 import pandas as pd
 
 from config import paths
+from config.paths import RoutePaths
 from detection.run_detection import load_detections
 from localization.localization_pipeline import load_observations, CENTER_HALF_FOV_DEG
 from util import localization_utils as lu
@@ -128,14 +130,14 @@ def match_frame(fname, poles, boxes, gate_px=None):
     return rows
 
 
-def match_all(gate_px=None, min_score=MIN_SCORE):
+def match_all(route: RoutePaths, gate_px=None, min_score=MIN_SCORE):
     """Run the matcher over every frame and return the match table (no writing).
 
     Shared by perform_matching (default params) and the offline sweep (which
     passes gate_px=inf to recover every assigned pole's residual pre-gating)."""
     # ----- Load Data -----
     # Pole Observations - Which frames show which pole
-    observations_df = load_observations()
+    observations_df = load_observations(route)
     # Pole Detections - Bounding Boxes per image
     detections_df = load_detections()
 
@@ -155,23 +157,25 @@ def match_all(gate_px=None, min_score=MIN_SCORE):
     return pd.DataFrame(all_rows)
 
 
-def perform_matching():
-    matches = match_all()
+def perform_matching(route: RoutePaths):
+    """Match one route's poles to boxes and write the match table into its route dir."""
+    matches = match_all(route)
+    matches_path = route.matches
 
     # ----- Write -----
-    paths.MATCHES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    matches.to_parquet(paths.MATCHES_PATH, compression="gzip", index=False)
+    matches_path.parent.mkdir(parents=True, exist_ok=True)
+    matches.to_parquet(matches_path, compression="gzip", index=False)
 
     # Human-readable CSV mirror (rounded floats) for manual review / comparison
     # against hand annotations.
-    csv_path = paths.MATCHES_PATH.with_suffix(".csv")
+    csv_path = matches_path.with_suffix(".csv")
     matches.round({"theta_deg": 1, "x_pred": 0, "x_box": 0, "residual_px": 1}) \
            .to_csv(csv_path, index=False)
 
     n_matched = (matches.status == "matched").sum()
     n_poles = len(matches)
     print(f"wrote {n_poles} pole-rows to:")
-    print(f"  {paths.MATCHES_PATH}")
+    print(f"  {matches_path}")
     print(f"  {csv_path}")
     print(f"  matched:          {n_matched} ({n_matched / n_poles:.0%})")
     print(f"  unmatched_no_box: {(matches.status == 'unmatched_no_box').sum()}")
@@ -181,14 +185,20 @@ def perform_matching():
     return matches
 
 
-def load_matches() -> pd.DataFrame:
-    """Load the pole<->box match table. Raises if matching hasn't been run."""
-    if not paths.MATCHES_PATH.exists():
+def load_matches(route: RoutePaths) -> pd.DataFrame:
+    """Load one route's pole<->box match table. Raises if matching hasn't been run."""
+    if not route.matches.exists():
         raise FileNotFoundError(
-            f"No matches at {paths.MATCHES_PATH}; run perform_matching first"
+            f"No matches at {route.matches}; run perform_matching first"
         )
-    return pd.read_parquet(paths.MATCHES_PATH)
+    return pd.read_parquet(route.matches)
+
+
+def main():
+    p = argparse.ArgumentParser(description="Match one route's poles to detected boxes.")
+    paths.add_batch_arg(p)
+    perform_matching(paths.route_paths(p.parse_args().batch))
 
 
 if __name__ == "__main__":
-    perform_matching()
+    main()

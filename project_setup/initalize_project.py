@@ -2,7 +2,7 @@ from config import paths
 from scripts import build_pole_catalog, download_street_images
 
 DATA_DIR = paths.DATA_DIR
-DATA_SUBDIRS = ("pole_catalog", "route_annotations", "street_images")
+DATA_SUBDIRS = ("routes", "route_annotations", "street_images")
 
 
 def create_data_dirs():

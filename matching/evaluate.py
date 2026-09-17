@@ -2,16 +2,16 @@
 
 Workflow (annotate once, compare many times):
 
-    1. python3 -m matching.evaluate template
-         -> writes ground_truth_template.csv, one row per (frame, pole) with an
-            empty `true_box_index` column. Copy it to ground_truth.csv (same
-            directory) and fill in the correct box_index for each pole (leave
+    1. python3 -m matching.evaluate --batch NAME template
+         -> writes <route>/evaluation/ground_truth_template.csv, one row per
+            (frame, pole) with an empty `true_box_index` column. Copy it to
+            ground_truth.csv (same directory) and fill in the correct box_index for each pole (leave
             blank if no box is correct / the pole isn't visible). Use the
             box-index-labeled images from `visualize_matches --label-boxes` to
             read off box numbers.
 
     2. Tune GATE_PX / THETA_MAX / MIN_SCORE, re-run matching, then:
-       python3 -m matching.evaluate compare
+       python3 -m matching.evaluate --batch NAME compare
          -> scores the current matches against your annotation. Re-run freely;
             your annotation never has to change.
 
@@ -31,24 +31,25 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from config import paths  # noqa: E402
+from config.paths import RoutePaths  # noqa: E402
 from localization.localization_pipeline import load_observations  # noqa: E402
 from matching.matching_pipeline import load_matches, match_all  # noqa: E402
-
-TEMPLATE_PATH = paths.MATCHING_DIR / "ground_truth_template.csv"
-GROUND_TRUTH_PATH = paths.MATCHING_DIR / "ground_truth.csv"
 
 # GATE_PX sweep resolution; the range runs 0..(max observed residual).
 SWEEP_STEP_PX = 25.0
 
 
-def write_template() -> None:
+def write_template(route: RoutePaths) -> Path:
     """Write one row per (frame, pole) with an empty true_box_index to fill in.
 
     Sourced from observations (not from the matches), so the template is
     independent of the matching parameters — the poles you need to judge don't
     change when you tune the algorithm.
+
+    Returns the template path (<route>/evaluation/ground_truth_template.csv).
     """
-    obs = load_observations()
+    template_path = route.ground_truth_template
+    obs = load_observations(route)
     template = (
         obs[["frame_number", "image_filename", "pole_index", "pole_id"]]
         .drop_duplicates(["image_filename", "pole_id"])
@@ -65,12 +66,13 @@ def write_template() -> None:
     # is what lets scoring separate detector misses from matcher misses.
     template["pole_visible"] = ""
 
-    TEMPLATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    template.to_csv(TEMPLATE_PATH, index=False)
-    print(f"wrote {len(template)} rows to {TEMPLATE_PATH}")
+    template_path.parent.mkdir(parents=True, exist_ok=True)
+    template.to_csv(template_path, index=False)
+    print(f"wrote {len(template)} rows to {template_path}")
     print("Copy it to ground_truth.csv and fill in true_box_index (+ pole_visible on")
     print("blank-box rows), then run:")
-    print("  python3 -m matching.evaluate compare")
+    print(f"  python3 -m matching.evaluate --batch {route.batch!r} compare")
+    return template_path
 
 
 def _category(true_box, algo_box, pole_visible) -> str:
@@ -119,9 +121,11 @@ def _read_truth(ground_truth_path: Path, subset_path: Path | None = None) -> pd.
     return truth
 
 
-def compare(ground_truth_path: Path = GROUND_TRUTH_PATH, subset_path: Path | None = None,
-            save_path: Path | None = None) -> pd.DataFrame:
-    """Score the current matches against a filled-in ground-truth CSV.
+def compare(route: RoutePaths, ground_truth_path: Path | None = None,
+            subset_path: Path | None = None, save_path: Path | None = None) -> pd.DataFrame:
+    """Score one route's current matches against a filled-in ground-truth CSV.
+
+    ground_truth_path=None -> the route's own ground_truth.csv.
 
     Prints a report of the useful statistics; with save_path, writes the same
     report to a .txt file. The report covers: the category breakdown, the matching
@@ -129,12 +133,14 @@ def compare(ground_truth_path: Path = GROUND_TRUTH_PATH, subset_path: Path | Non
     little match geometry + error diagnostics (median residual, the wrong_box angle,
     and why the misses missed).
     """
+    if ground_truth_path is None:
+        ground_truth_path = route.ground_truth
     truth = _read_truth(ground_truth_path, subset_path)
     visible = truth["_visible"]
 
     # Pull residual/theta/status too (already in load_matches) so the report can
     # include geometry + diagnostics, not just the box decision.
-    algo = load_matches()[["image_filename", "pole_id", "pole_index", "box_index",
+    algo = load_matches(route)[["image_filename", "pole_id", "pole_index", "box_index",
                            "residual_px", "theta_deg", "status"]]
 
     # Left-join so every annotated pole is scored, matched or not.
@@ -216,9 +222,11 @@ def _prf(counts) -> tuple[float, float, float]:
     return p, r, f1
 
 
-def sweep(ground_truth_path: Path = GROUND_TRUTH_PATH,
+def sweep(route: RoutePaths, ground_truth_path: Path | None = None,
           subset_path: Path | None = None) -> pd.DataFrame:
-    """Precision/recall/F1 as a function of GATE_PX, from a single annotation.
+    """Precision/recall/F1 as a function of GATE_PX, from one route's annotation.
+
+    ground_truth_path=None -> the route's own ground_truth.csv.
 
     Runs the matcher ONCE with the gate disabled (gate_px=inf) so every pole's
     assigned box + residual is known, then re-gates in pandas every SWEEP_STEP_PX
@@ -226,12 +234,14 @@ def sweep(ground_truth_path: Path = GROUND_TRUTH_PATH,
     their current module values (they change the assignment and would need a
     re-run per value — see the design doc).
     """
+    if ground_truth_path is None:
+        ground_truth_path = route.ground_truth
     truth = _read_truth(ground_truth_path, subset_path)
     visible = truth["_visible"]
 
     # Ungated run: with gate_px=inf every assignable cone pole is 'matched', so we
     # recover its assigned box_index and residual before any gating.
-    ungated = match_all(gate_px=float("inf"))
+    ungated = match_all(route, gate_px=float("inf"))
     assigned = ungated[ungated.status == "matched"][
         ["image_filename", "pole_id", "box_index", "residual_px"]
     ]
@@ -280,16 +290,44 @@ def sweep(ground_truth_path: Path = GROUND_TRUTH_PATH,
     return table
 
 
+def run_evaluation_pipeline(route: RoutePaths) -> bool:
+    """Pipeline step: evaluate one route's matches if it has been annotated.
+
+    Always (re)writes the annotation template into the route's evaluation/ dir.
+    If a filled-in ground_truth.csv sits next to it, scores the current matches
+    and saves full_report.txt (and isolated_report.txt when the route's isolated
+    subset CSV exists) under evaluation/reports/. Otherwise prints a one-line
+    skip: a missing ground truth is the normal state on a route's first run.
+
+    Returns True if scoring ran.
+    """
+    write_template(route)
+    if not route.ground_truth.exists():
+        print(f"\nevaluation skipped: no ground truth at {route.ground_truth}")
+        print(f"  fill in {route.ground_truth_template.name} and save it as "
+              f"{route.ground_truth.name} in the same dir to score this route")
+        return False
+
+    print("\n=== evaluation: all annotated poles ===")
+    compare(route, save_path=route.eval_reports_dir / "full_report.txt")
+    if route.isolated_poles.exists():
+        print("\n=== evaluation: isolated subset (pole alone in its frame) ===")
+        compare(route, subset_path=route.isolated_poles,
+                save_path=route.eval_reports_dir / "isolated_report.txt")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate matcher vs hand annotation.")
+    paths.add_batch_arg(parser)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("template", help="write the annotation template")
     scoring_cmds = {}
     for name, help_text in [("compare", "score current matches against filled ground truth"),
                             ("sweep", "precision/recall/F1 vs GATE_PX from one annotation")]:
         cmd = sub.add_parser(name, help=help_text)
-        cmd.add_argument("ground_truth", type=Path, nargs="?", default=GROUND_TRUTH_PATH,
-                         help=f"filled-in ground-truth CSV (default: {GROUND_TRUTH_PATH})")
+        cmd.add_argument("ground_truth", type=Path, nargs="?", default=None,
+                         help="filled-in ground-truth CSV (default: <route>/evaluation/ground_truth.csv)")
         cmd.add_argument("--subset", type=Path, default=None,
                          help="CSV of (image_filename, pole_id) to score only those poles")
         scoring_cmds[name] = cmd
@@ -297,12 +335,13 @@ def main():
                                          help="also write the report to this text file")
     args = parser.parse_args()
 
+    route = paths.route_paths(args.batch)
     if args.command == "template":
-        write_template()
+        write_template(route)
     elif args.command == "compare":
-        compare(args.ground_truth, subset_path=args.subset, save_path=args.save)
+        compare(route, args.ground_truth, subset_path=args.subset, save_path=args.save)
     else:
-        sweep(args.ground_truth, subset_path=args.subset)
+        sweep(route, args.ground_truth, subset_path=args.subset)
 
 
 if __name__ == "__main__":

@@ -14,10 +14,11 @@ Output is (image_filename, pole_id), the subset format accepted by
 evaluate.compare / evaluate.sweep / export_poles.export via `subset_path`.
 
 Run:
-    python3 -m matching.find_isolated_poles              # write ../data/matching/isolated_poles.csv
+    python3 -m matching.find_isolated_poles --batch NAME   # write <route>/matching/isolated_poles.csv
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -27,6 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from config import paths  # noqa: E402
+from config.paths import RoutePaths  # noqa: E402
 from localization.localization_pipeline import load_observations  # noqa: E402
 
 SUBSET_COLS = ["image_filename", "pole_id"]
@@ -51,12 +53,12 @@ def isolated_poles(obs: pd.DataFrame | None = None, batch: str | None = None) ->
     return obs[obs.image_filename.isin(alone_frames)][SUBSET_COLS].reset_index(drop=True)
 
 
-def run_find_isolated_poles_pipeline() -> Path:
-    """Compute the isolated subset from the observations on disk and persist it
-    to paths.ISOLATED_POLES_PATH; returns that path."""
-    obs = load_observations()
+def run_find_isolated_poles_pipeline(route: RoutePaths) -> Path:
+    """Compute one route's isolated subset from its observations and persist it
+    as a CSV in its route dir; returns that path."""
+    obs = load_observations(route)
     iso = isolated_poles(obs)
-    out_path = paths.ISOLATED_POLES_PATH
+    out_path = route.isolated_poles
     out_path.parent.mkdir(parents=True, exist_ok=True)
     iso.to_csv(out_path, index=False)
     n_total = len(obs.drop_duplicates(SUBSET_COLS))
@@ -66,7 +68,9 @@ def run_find_isolated_poles_pipeline() -> Path:
 
 
 def main():
-    run_find_isolated_poles_pipeline()
+    p = argparse.ArgumentParser(description="Write one route's isolated-pole subset CSV.")
+    paths.add_batch_arg(p)
+    run_find_isolated_poles_pipeline(paths.route_paths(p.parse_args().batch))
 
 
 if __name__ == "__main__":
