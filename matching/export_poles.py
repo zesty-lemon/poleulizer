@@ -30,6 +30,8 @@ from pathlib import Path
 import pandas as pd
 from PIL import Image, ImageDraw
 
+from matching.find_isolated_poles import run_find_isolated_poles_pipeline
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
@@ -120,9 +122,20 @@ def _render_unmatched(fname: str, box_corners: dict, x_pred: float,
 
 # ----- export -----
 
+def export_complete_and_isolated(root: Path = DEFAULT_EXPORT_DIR) -> None:
+    """
+    Export of both complete route and only the isolated subset of poles
+    :param root:
+    :return:
+    """
+    export(root / "complete_route")
+    export(root / "isolated_poles", subset_path=run_find_isolated_poles_pipeline())
+
+
 def export(out_dir: Path, matched_only: bool = False, render_images: bool = True,
            crops: bool = False, include_unmatched_renders: bool = False,
            subset_path: Path | None = None) -> None:
+
     matches = load_matches()
     dets = load_detections()
 
