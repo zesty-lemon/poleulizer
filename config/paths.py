@@ -37,3 +37,6 @@ BBOX_PATH = DETECTION_DIR / "bboxes.parquet"
 # Pole<->box matches (one row per expected pole per frame).
 MATCHING_DIR = DATA_DIR / "matching"
 MATCHES_PATH = MATCHING_DIR / "pole_box_matches.parquet"
+# Subset of (image_filename, pole_id) where the pole is alone in its frame
+# (see matching/find_isolated_poles.py); consumed by evaluate/export --subset.
+ISOLATED_POLES_PATH = MATCHING_DIR / "isolated_poles.csv"

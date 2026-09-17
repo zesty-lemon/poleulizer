@@ -3,7 +3,8 @@ from localization.localization_pipeline import run_localization_pipeline
 from detection.run_detection import main as run_detection_main
 from project_setup.initalize_project import initalize_project_if_needed
 from matching.matching_pipeline import perform_matching
-from matching.export_poles import export, DEFAULT_EXPORT_DIR
+from matching.export_poles import export, DEFAULT_EXPORT_DIR, ISOLATED_EXPORT_DIR
+from matching.find_isolated_poles import run_find_isolated_poles_pipeline
 from scripts.download_street_images import run_download_street_images_pipeline
 
 
@@ -13,7 +14,8 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
                                        localize_poles: bool = True,
                                        detect_poles: bool = True,
                                        perform_pole_matching: bool = True,
-                                       export_poles: bool = True
+                                       export_poles: bool = True,
+                                       export_isolated_poles: bool = True
                                        ):
     """
     Onboards a new route and runs the full pipeline end to end.
@@ -22,7 +24,8 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
 
     Run initial setup (if desired), download street images, build pole catalog,
     localize the street poles, detect the presence of poles, match poles to
-    bounding boxes, and export the pole-centric deliverable
+    bounding boxes, and export the pole-centric deliverable (whole catalog, plus
+    the isolated-pole subset)
 
     :param force_reinitalization: Forces ../data/ directory creation even if already initialized
     :param download_street_images: Mirrors every JPG referenced by XMLs in new_routes/, then archives the XML to onboarded_routes/
@@ -31,6 +34,8 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
     :param detect_poles: Runs Grounding-DINO on each observation image and caches the bounding boxes. Idempotent (skips cached images)
     :param perform_pole_matching: Match poles to bounding boxes
     :param export_poles: Write the pole-centric CSV + per-pole image folders to matching/pole_export
+    :param export_isolated_poles: Also compute the isolated subset (pole alone in its frame) from
+        the localization observations and export just those pole-frames to matching/pole_export_isolated
     :return: None
     """
 
@@ -60,6 +65,11 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
     # ----- Export Deliverable
     if export_poles:
         export(DEFAULT_EXPORT_DIR)
+
+    # ----- Export Isolated Subset (poles alone in their frame; no annotation needed)
+    if export_isolated_poles:
+        subset_path = run_find_isolated_poles_pipeline()
+        export(ISOLATED_EXPORT_DIR, subset_path=subset_path)
 
 
 if __name__ == "__main__":

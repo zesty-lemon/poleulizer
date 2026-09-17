@@ -18,6 +18,7 @@ Run:
     python3 -m matching.export_poles --crops             # also save tight box crops
     python3 -m matching.export_poles --subset ../data/matching/isolated_poles.csv \\
         --out ../data/matching/pole_export_isolated     # only the isolated poles
+                                                        # (subset CSV from find_isolated_poles)
 """
 from __future__ import annotations
 
@@ -42,8 +43,9 @@ from matching.visualize_matches import (  # noqa: E402
     FONT_SIZE, LABEL_ABOVE_BOX_PX,
 )
 
-# Default output root (kept in-script rather than config.paths to stay self-contained).
-DEFAULT_EXPORT_DIR = paths.MATCHING_DIR / "pole_export"
+# Default output roots (kept in-script rather than config.paths to stay self-contained).
+DEFAULT_EXPORT_DIR = paths.MATCHING_DIR / "pole_export"                   # whole catalog
+ISOLATED_EXPORT_DIR = paths.MATCHING_DIR / "pole_export_isolated"         # isolated subset
 CROP_MARGIN_PX = 60  # padding around a box when saving a --crops thumbnail
 
 BBOX_COLS = ["bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"]
