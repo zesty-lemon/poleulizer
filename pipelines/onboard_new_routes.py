@@ -3,8 +3,7 @@ from localization.localization_pipeline import run_localization_pipeline
 from detection.run_detection import main as run_detection_main
 from project_setup.initalize_project import initalize_project_if_needed
 from matching.matching_pipeline import perform_matching
-from matching.export_poles import export, DEFAULT_EXPORT_DIR, ISOLATED_EXPORT_DIR
-from matching.find_isolated_poles import run_find_isolated_poles_pipeline
+from matching.export_poles import export_complete_and_isolated
 from scripts.download_street_images import run_download_street_images_pipeline
 
 
@@ -14,8 +13,7 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
                                        localize_poles: bool = True,
                                        detect_poles: bool = True,
                                        perform_pole_matching: bool = True,
-                                       export_poles: bool = True,
-                                       export_isolated_poles: bool = True
+                                       export_poles: bool = True
                                        ):
     """
     Onboards a new route and runs the full pipeline end to end.
@@ -33,9 +31,9 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
     :param localize_poles: For each labeled pole, walks back through frames and records every frame where the pole is in the camera FOV
     :param detect_poles: Runs Grounding-DINO on each observation image and caches the bounding boxes. Idempotent (skips cached images)
     :param perform_pole_matching: Match poles to bounding boxes
-    :param export_poles: Write the pole-centric CSV + per-pole image folders to matching/pole_export
-    :param export_isolated_poles: Also compute the isolated subset (pole alone in its frame) from
-        the localization observations and export just those pole-frames to matching/pole_export_isolated
+    :param export_poles: Write the pole-centric CSV + per-pole image folders to matching/pole_export:
+        complete_route/ for the whole catalog, isolated_poles/ for the subset of pole-frames where the
+        pole is alone in its frame (computed from the localization observations, no annotation needed)
     :return: None
     """
 
@@ -62,14 +60,9 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
     if perform_pole_matching:
         perform_matching()
 
-    # ----- Export Deliverable
+    # ----- Export Deliverable (complete route + isolated subset)
     if export_poles:
-        export(DEFAULT_EXPORT_DIR)
-
-    # ----- Export Isolated Subset (poles alone in their frame; no annotation needed)
-    if export_isolated_poles:
-        subset_path = run_find_isolated_poles_pipeline()
-        export(ISOLATED_EXPORT_DIR, subset_path=subset_path)
+        export_complete_and_isolated()
 
 
 if __name__ == "__main__":

@@ -128,8 +128,9 @@ def export_complete_and_isolated(root: Path = DEFAULT_EXPORT_DIR) -> None:
     :param root:
     :return:
     """
+    subset_path = run_find_isolated_poles_pipeline()
     export(root / "complete_route")
-    export(root / "isolated_poles", subset_path=run_find_isolated_poles_pipeline())
+    export(root / "isolated_poles", subset_path=subset_path)
 
 
 def export(out_dir: Path, matched_only: bool = False, render_images: bool = True,
