@@ -4,13 +4,14 @@ Workflow (annotate once, compare many times):
 
     1. python3 -m matching.evaluate template
          -> writes ground_truth_template.csv, one row per (frame, pole) with an
-            empty `true_box_index` column. Copy it to ground_truth.csv and fill
-            in the correct box_index for each pole (leave blank if no box is
-            correct / the pole isn't visible). Use the box-index-labeled images
-            from `visualize_matches --label-boxes` to read off box numbers.
+            empty `true_box_index` column. Copy it to ground_truth.csv (same
+            directory) and fill in the correct box_index for each pole (leave
+            blank if no box is correct / the pole isn't visible). Use the
+            box-index-labeled images from `visualize_matches --label-boxes` to
+            read off box numbers.
 
     2. Tune GATE_PX / THETA_MAX / MIN_SCORE, re-run matching, then:
-       python3 -m matching.evaluate compare ground_truth.csv
+       python3 -m matching.evaluate compare
          -> scores the current matches against your annotation. Re-run freely;
             your annotation never has to change.
 
@@ -34,6 +35,10 @@ from localization.localization_pipeline import load_observations  # noqa: E402
 from matching.matching_pipeline import load_matches, match_all  # noqa: E402
 
 TEMPLATE_PATH = paths.MATCHING_DIR / "ground_truth_template.csv"
+GROUND_TRUTH_PATH = paths.MATCHING_DIR / "ground_truth.csv"
+
+# GATE_PX sweep resolution; the range runs 0..(max observed residual).
+SWEEP_STEP_PX = 25.0
 
 
 def write_template() -> None:
@@ -65,7 +70,7 @@ def write_template() -> None:
     print(f"wrote {len(template)} rows to {TEMPLATE_PATH}")
     print("Copy it to ground_truth.csv and fill in true_box_index (+ pole_visible on")
     print("blank-box rows), then run:")
-    print("  python3 -m matching.evaluate compare ground_truth.csv")
+    print("  python3 -m matching.evaluate compare")
 
 
 def _category(true_box, algo_box, pole_visible) -> str:
@@ -114,7 +119,7 @@ def _read_truth(ground_truth_path: Path, subset_path: Path | None = None) -> pd.
     return truth
 
 
-def compare(ground_truth_path: Path, subset_path: Path | None = None,
+def compare(ground_truth_path: Path = GROUND_TRUTH_PATH, subset_path: Path | None = None,
             save_path: Path | None = None) -> pd.DataFrame:
     """Score the current matches against a filled-in ground-truth CSV.
 
@@ -167,17 +172,13 @@ def compare(ground_truth_path: Path, subset_path: Path | None = None,
         lines.append(f"  {cat:15s} {n:4d}  ({n / total:.0%})")
 
     lines.append("\nmatching metrics:")
-    if cm + wrong + false:
-        lines.append(f"  match precision:  {p:.1%}")
-    if cm + wrong + missed:
-        lines.append(f"  match recall:     {r:.1%}")
+    lines.append(f"  match precision:  {p:.1%}")
+    lines.append(f"  match recall:     {r:.1%}")
     lines.append(f"  match F1:         {f1:.1%}")
-    if matcher_total:
-        lines.append(f"  matcher accuracy: {(cm + reject) / matcher_total:.1%}"
-                     f"  (excl. {det_miss} detector misses)")
-    if denom_det:
-        lines.append(f"  detector recall:  {detected / denom_det:.1%}"
-                     f"  ({detected}/{denom_det} visible poles boxed)")
+    lines.append(f"  matcher accuracy: {(cm + reject) / max(matcher_total, 1):.1%}"
+                 f"  (excl. {det_miss} detector misses)")
+    lines.append(f"  detector recall:  {detected / max(denom_det, 1):.1%}"
+                 f"  ({detected}/{denom_det} visible poles boxed)")
 
     # Match geometry + error diagnostics (from the residual/theta/status columns).
     matched = merged[merged.status == "matched"]
@@ -215,16 +216,15 @@ def _prf(counts) -> tuple[float, float, float]:
     return p, r, f1
 
 
-def sweep(ground_truth_path: Path, gate_min: float = 0.0, gate_max: float | None = None,
-          gate_step: float = 25.0, metric: str = "f1",
-          target_precision: float | None = None, out: Path | None = None,
+def sweep(ground_truth_path: Path = GROUND_TRUTH_PATH,
           subset_path: Path | None = None) -> pd.DataFrame:
     """Precision/recall/F1 as a function of GATE_PX, from a single annotation.
 
     Runs the matcher ONCE with the gate disabled (gate_px=inf) so every pole's
-    assigned box + residual is known, then re-gates in pandas at each candidate
-    GATE_PX. THETA_MAX and MIN_SCORE are held at their current module values (they
-    change the assignment and would need a re-run per value — see the design doc).
+    assigned box + residual is known, then re-gates in pandas every SWEEP_STEP_PX
+    from 0 to the max observed residual. THETA_MAX and MIN_SCORE are held at
+    their current module values (they change the assignment and would need a
+    re-run per value — see the design doc).
     """
     truth = _read_truth(ground_truth_path, subset_path)
     visible = truth["_visible"]
@@ -242,13 +242,8 @@ def sweep(ground_truth_path: Path, gate_min: float = 0.0, gate_max: float | None
     true_box = merged["true_box_index"]
 
     max_resid = float(resid.max()) if resid.notna().any() else 0.0
-    if gate_max is None:
-        gate_max = (int(max_resid // gate_step) + 1) * gate_step
-
-    gates, g = [], gate_min
-    while g <= gate_max + 1e-9:
-        gates.append(round(g, 3))
-        g += gate_step
+    n_gates = int(max_resid // SWEEP_STEP_PX) + 2
+    gates = [round(i * SWEEP_STEP_PX, 3) for i in range(n_gates)]
 
     records = []
     for g in gates:
@@ -269,7 +264,7 @@ def sweep(ground_truth_path: Path, gate_min: float = 0.0, gate_max: float | None
     table = pd.DataFrame(records)
 
     # ----- Report -----
-    print(f"swept GATE_PX {gates[0]:.0f}..{gates[-1]:.0f} step {gate_step:.0f} "
+    print(f"swept GATE_PX {gates[0]:.0f}..{gates[-1]:.0f} step {SWEEP_STEP_PX:.0f} "
           f"over {len(truth)} annotated poles "
           f"(THETA_MAX / MIN_SCORE held at current values)\n")
     print(f"  {'gate':>6}  {'cm':>4} {'wrong':>5} {'miss':>4} {'false':>5}   "
@@ -279,60 +274,36 @@ def sweep(ground_truth_path: Path, gate_min: float = 0.0, gate_max: float | None
               f"{r['missed']:4d} {r['false_match']:5d}   "
               f"{r['precision']:6.1%} {r['recall']:6.1%} {r['f1']:6.1%}")
 
-    best = table.loc[table[metric].idxmax()]
-    print(f"\n  best {metric.upper()}: gate={best.gate_px:.0f}  "
+    best = table.loc[table.f1.idxmax()]
+    print(f"\n  best F1: gate={best.gate_px:.0f}  "
           f"(prec {best.precision:.1%}, recall {best.recall:.1%}, F1 {best.f1:.1%})")
-    if target_precision is not None:
-        ok = table[table.precision >= target_precision]
-        if len(ok):
-            pick = ok.loc[ok.gate_px.idxmax()]  # loosest gate still meeting precision
-            print(f"  loosest gate with precision >= {target_precision:.0%}: "
-                  f"gate={pick.gate_px:.0f}  (recall {pick.recall:.1%}, F1 {pick.f1:.1%})")
-        else:
-            print(f"  no gate reaches precision >= {target_precision:.0%}")
-
-    if out is not None:
-        table.to_csv(out, index=False)
-        print(f"\n  wrote sweep table to {out}")
     return table
 
 
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser(description="Evaluate matcher vs hand annotation.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("template", help="write the annotation template")
-    cmp = sub.add_parser("compare", help="score current matches against filled ground truth")
-    cmp.add_argument("ground_truth", type=Path, help="your filled-in ground_truth.csv")
-    cmp.add_argument("--subset", type=Path, default=None,
-                     help="CSV of (image_filename, pole_id) to score only those poles")
-    cmp.add_argument("--save", type=Path, default=None, metavar="FILE.txt",
-                     help="also write the report to this text file")
-
-    swp = sub.add_parser("sweep", help="precision/recall/F1 vs GATE_PX from one annotation")
-    swp.add_argument("ground_truth", type=Path, help="your filled-in ground_truth.csv")
-    swp.add_argument("--gate-min", type=float, default=0.0)
-    swp.add_argument("--gate-max", type=float, default=None)
-    swp.add_argument("--gate-step", type=float, default=25.0)
-    swp.add_argument("--metric", choices=["f1", "precision", "recall"], default="f1",
-                     help="what the recommended gate maximizes (default f1)")
-    swp.add_argument("--target-precision", type=float, default=None,
-                     help="also report the loosest gate with precision >= this (0-1)")
-    swp.add_argument("--out", type=Path, default=None, help="write the sweep table to CSV")
-    swp.add_argument("--subset", type=Path, default=None,
-                     help="CSV of (image_filename, pole_id) to sweep only those poles")
+    scoring_cmds = {}
+    for name, help_text in [("compare", "score current matches against filled ground truth"),
+                            ("sweep", "precision/recall/F1 vs GATE_PX from one annotation")]:
+        cmd = sub.add_parser(name, help=help_text)
+        cmd.add_argument("ground_truth", type=Path, nargs="?", default=GROUND_TRUTH_PATH,
+                         help=f"filled-in ground-truth CSV (default: {GROUND_TRUTH_PATH})")
+        cmd.add_argument("--subset", type=Path, default=None,
+                         help="CSV of (image_filename, pole_id) to score only those poles")
+        scoring_cmds[name] = cmd
+    scoring_cmds["compare"].add_argument("--save", type=Path, default=None, metavar="FILE.txt",
+                                         help="also write the report to this text file")
     args = parser.parse_args()
 
     if args.command == "template":
         write_template()
     elif args.command == "compare":
         compare(args.ground_truth, subset_path=args.subset, save_path=args.save)
-    elif args.command == "sweep":
-        sweep(args.ground_truth, gate_min=args.gate_min, gate_max=args.gate_max,
-              gate_step=args.gate_step, metric=args.metric,
-              target_precision=args.target_precision, out=args.out,
-              subset_path=args.subset)
-    return 0
+    else:
+        sweep(args.ground_truth, subset_path=args.subset)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

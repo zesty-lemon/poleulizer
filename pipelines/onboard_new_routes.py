@@ -1,10 +1,11 @@
 from scripts.build_pole_catalog import main as build_pole_catalog_main
-from scripts.download_street_images import main as download_street_images_main
 from localization.localization_pipeline import run_localization_pipeline
 from detection.run_detection import main as run_detection_main
 from project_setup.initalize_project import initalize_project_if_needed
 from matching.matching_pipeline import perform_matching
 from matching.export_poles import export, DEFAULT_EXPORT_DIR
+from scripts.download_street_images import run_download_street_images_pipeline
+
 
 def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
                                        download_street_images: bool = True,
@@ -16,6 +17,8 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
                                        ):
     """
     Onboards a new route and runs the full pipeline end to end.
+
+    Main entry point into this project
 
     Run initial setup (if desired), download street images, build pole catalog,
     localize the street poles, detect the presence of poles, match poles to
@@ -36,7 +39,7 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
 
     # ----- Download Street Images from VAIL Server
     if download_street_images:
-        download_street_images_main()
+        run_download_street_images_pipeline()
 
     # ----- Build Pole Catalog (geohash labeled poles from onboarded XMLs)
     if build_pole_catalog:

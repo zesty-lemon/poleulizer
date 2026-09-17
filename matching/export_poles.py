@@ -52,12 +52,12 @@ BBOX_COLS = ["bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"]
 # ----- naming (filesystem-safe views of the real pole_id) -----
 
 def _geohash_suffix(pole_id: str) -> str:
-    """`geohash:druu9hynx` -> `druu9hynx` (drop the colon; it's a path hazard on macOS)."""
+    """`geohash:druu9hynx` -> `druu9hynx` (drop the colon; creates a path hazard on macOS)."""
     return str(pole_id).split(":")[-1]
 
 
 def _pole_folder_name(pole_index, pole_id) -> str:
-    """Sortable, collision-free folder name. pole_index is unique, so folders never clash."""
+    """collision-free folder name. pole_index is unique, so folders never clash."""
     return f"pole{int(pole_index):02d}_{_geohash_suffix(pole_id)}"
 
 
@@ -69,19 +69,31 @@ def _render(fname: str, box_corners: dict, out_full: Path | None,
 
     Opens the image once; writes the full frame to out_full and/or a padded crop to
     out_crop (whichever are given)."""
+
+    # Load the street image and set up PIL's drawing surface. box_corners maps
+    # box_index -> (x1, y1, x2, y2) for every detection in this frame.
     img = Image.open(paths.STREET_IMAGES_DIR / fname).convert("RGB")
     draw = ImageDraw.Draw(img)
     font = _load_font(FONT_SIZE)
 
+    # Non-Target poles first: draw every other detection in the frame as a thin gray box,
+    # so you can see what the matcher chose against.
     for bi, corners in box_corners.items():
         if bi != highlight_box:
             draw.rectangle(list(corners), outline=ORPHAN_COLOR, width=ORPHAN_BOX_WIDTH)
+
+    # The matched box, drawn last so it sits on top: thick green rectangle with a
+    # "#<pole_index> -> box <box_index>" label just above its top-left corner
+    # (clamped to y=0 so the label stays on-canvas for boxes at the image top).
     x1, y1, x2, y2 = box_corners[highlight_box]
     draw.rectangle([x1, y1, x2, y2], outline=MATCHED_COLOR, width=MATCHED_BOX_WIDTH)
     draw.text((x1, max(0, y1 - LABEL_ABOVE_BOX_PX)),
               f"#{int(pole_index)} -> box {int(highlight_box)}",
               fill=MATCHED_COLOR, font=font)
 
+    # Save whichever outputs were requested. out_full is the annotated frame at
+    # native resolution; out_crop is a thumbnail of the matched box plus
+    # CROP_MARGIN_PX of padding, with the crop window clamped to the image edges.
     if out_full is not None:
         img.save(out_full)
     if out_crop is not None:
@@ -217,7 +229,7 @@ def export(out_dir: Path, matched_only: bool = False, render_images: bool = True
     print(f"  -> {out_dir}")
 
 
-def main() -> int:
+def run_export_poles_pipeline():
     p = argparse.ArgumentParser(description="Export a pole-centric CSV + per-pole image folders.")
     p.add_argument("--out", type=Path, default=DEFAULT_EXPORT_DIR)
     p.add_argument("--matched-only", action="store_true",
@@ -235,8 +247,9 @@ def main() -> int:
     export(args.out, matched_only=args.matched_only, render_images=not args.no_images,
            crops=args.crops, include_unmatched_renders=args.include_unmatched_renders,
            subset_path=args.subset)
-    return 0
 
+def main():
+    run_export_poles_pipeline()
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

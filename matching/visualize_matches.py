@@ -208,7 +208,7 @@ def _render_all(out_dir: Path, label_boxes: bool = False) -> None:
     print("done")
 
 
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser(description="Visualize pole<->box matches for a frame.")
     parser.add_argument("--frame", default=None,
                         help="image_filename to render (default: busiest matched frame)")
@@ -224,7 +224,7 @@ def main() -> int:
     # Batch mode: render everything and exit.
     if args.all is not None:
         _render_all(args.all, label_boxes=args.label_boxes)
-        return 0
+        return
 
     # Single-frame mode: default to the busiest matched frame if none given.
     fname = args.frame
@@ -236,8 +236,7 @@ def main() -> int:
         label_boxes_frame(fname, args.save)
     else:
         visualize_frame(fname, args.save)
-    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
