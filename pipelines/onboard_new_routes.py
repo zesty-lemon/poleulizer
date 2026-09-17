@@ -13,7 +13,8 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
                                        localize_poles: bool = True,
                                        detect_poles: bool = True,
                                        perform_pole_matching: bool = True,
-                                       export_poles: bool = True
+                                       export_complete_poles: bool = True,
+                                       export_isolated_poles: bool = True
                                        ):
     """
     Onboards a new route and runs the full pipeline end to end.
@@ -31,9 +32,10 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
     :param localize_poles: For each labeled pole, walks back through frames and records every frame where the pole is in the camera FOV
     :param detect_poles: Runs Grounding-DINO on each observation image and caches the bounding boxes. Idempotent (skips cached images)
     :param perform_pole_matching: Match poles to bounding boxes
-    :param export_poles: Write the pole-centric CSV + per-pole image folders to matching/pole_export:
+    :param export_complete_poles: Write the pole-centric CSV + per-pole image folders to matching/pole_export:
         complete_route/ for the whole catalog, isolated_poles/ for the subset of pole-frames where the
         pole is alone in its frame (computed from the localization observations, no annotation needed)
+    :param export_isolated_poles: Include a sub directory for only poles alone in their frames
     :return: None
     """
 
@@ -61,8 +63,9 @@ def onboard_new_route_and_run_pipeline(force_reinitalization: bool = False,
         perform_matching()
 
     # ----- Export Deliverable (complete route + isolated subset)
-    if export_poles:
-        export_complete_and_isolated()
+    if export_complete_poles or export_isolated_poles:
+        export_complete_and_isolated(include_complete_route = export_complete_poles,
+                                     include_isolated_poles=export_isolated_poles)
 
 
 if __name__ == "__main__":

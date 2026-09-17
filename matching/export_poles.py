@@ -17,8 +17,11 @@ Run:
     python3 -m matching.export_poles --matched-only      # drop unmatched CSV rows
     python3 -m matching.export_poles --crops             # also save tight box crops
     python3 -m matching.export_poles --subset ../data/matching/isolated_poles.csv \\
-        --out ../data/matching/pole_export_isolated     # only the isolated poles
+        --out ../data/matching/pole_export/isolated_poles   # only the isolated poles
                                                         # (subset CSV from find_isolated_poles)
+
+Default --out is pole_export/complete_route; export_complete_and_isolated() (used by
+the onboarding pipeline) writes complete_route/ and isolated_poles/ side by side.
 """
 from __future__ import annotations
 
@@ -30,13 +33,12 @@ from pathlib import Path
 import pandas as pd
 from PIL import Image, ImageDraw
 
-from matching.find_isolated_poles import run_find_isolated_poles_pipeline
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from config import paths  # noqa: E402
 from detection.run_detection import load_detections  # noqa: E402
+from matching.find_isolated_poles import run_find_isolated_poles_pipeline  # noqa: E402
 from matching.matching_pipeline import load_matches  # noqa: E402
 from matching.visualize_matches import (  # noqa: E402
     _box_corners_for_frame, _load_font,
@@ -46,8 +48,9 @@ from matching.visualize_matches import (  # noqa: E402
 )
 
 # Default output roots (kept in-script rather than config.paths to stay self-contained).
-DEFAULT_EXPORT_DIR = paths.MATCHING_DIR / "pole_export"                   # whole catalog
-ISOLATED_EXPORT_DIR = paths.MATCHING_DIR / "pole_export_isolated"         # isolated subset
+DEFAULT_EXPORT_DIR = paths.MATCHING_DIR / "pole_export"
+COMPLETE_ROUTE_EXPORT_DIR = DEFAULT_EXPORT_DIR / "complete_route"   # whole catalog
+ISOLATED_EXPORT_DIR = DEFAULT_EXPORT_DIR / "isolated_poles"         # isolated subset
 CROP_MARGIN_PX = 60  # padding around a box when saving a --crops thumbnail
 
 BBOX_COLS = ["bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"]
@@ -122,15 +125,21 @@ def _render_unmatched(fname: str, box_corners: dict, x_pred: float,
 
 # ----- export -----
 
-def export_complete_and_isolated(root: Path = DEFAULT_EXPORT_DIR) -> None:
+def export_complete_and_isolated(include_complete_route: bool = True,
+                                 include_isolated_poles: bool = True) -> None:
     """
-    Export of both complete route and only the isolated subset of poles
-    :param root:
-    :return:
+    Export the complete route and/or the isolated subset of poles.
+
+    :param include_complete_route: export every pole to COMPLETE_ROUTE_EXPORT_DIR
+    :param include_isolated_poles: compute the isolated subset (pole alone in its frame) from the
+        localization observations and export only those pole-frames to ISOLATED_EXPORT_DIR
+    :return: None
     """
-    subset_path = run_find_isolated_poles_pipeline()
-    export(root / "complete_route")
-    export(root / "isolated_poles", subset_path=subset_path)
+    if include_complete_route:
+        export(COMPLETE_ROUTE_EXPORT_DIR)
+    if include_isolated_poles:
+        subset_path = run_find_isolated_poles_pipeline()
+        export(ISOLATED_EXPORT_DIR, subset_path=subset_path)
 
 
 def export(out_dir: Path, matched_only: bool = False, render_images: bool = True,
@@ -247,7 +256,7 @@ def export(out_dir: Path, matched_only: bool = False, render_images: bool = True
 
 def run_export_poles_pipeline():
     p = argparse.ArgumentParser(description="Export a pole-centric CSV + per-pole image folders.")
-    p.add_argument("--out", type=Path, default=DEFAULT_EXPORT_DIR)
+    p.add_argument("--out", type=Path, default=COMPLETE_ROUTE_EXPORT_DIR)
     p.add_argument("--matched-only", action="store_true",
                    help="CSV: drop frames where the pole wasn't matched")
     p.add_argument("--no-images", action="store_true", help="write CSVs only, skip rendering")
