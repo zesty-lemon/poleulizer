@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -121,7 +122,6 @@ def _render_unmatched(fname: str, box_corners: dict, x_pred: float,
 
 
 # ----- export -----
-
 def export_complete_and_isolated(route: RoutePaths,
                                  include_complete_route: bool = True,
                                  include_isolated_poles: bool = True) -> None:
@@ -140,6 +140,13 @@ def export_complete_and_isolated(route: RoutePaths,
     if include_isolated_poles:
         subset_path = run_find_isolated_poles_pipeline(route)
         export(route, route.isolated_export_dir, subset_path=subset_path)
+
+    # Reveal the finished exports in Finder (macOS).
+    # If this fails on windows please
+    # 1 - Drive to nearest Apple store
+    # 2 - Buy a Macintosh
+
+    subprocess.run(["open", str(route.export_dir)], check=False)
 
 
 def export(route: RoutePaths, out_dir: Path, matched_only: bool = False,
