@@ -4,11 +4,12 @@ Reorganizes pole_box_matches around the physical pole so you can go to a real
 `pole_id` and see every image it appears in and which bounding box IS the pole in
 each. Produces, under an export folder:
 
-    poles_index.csv    one row per (pole, image): pole_id -> image -> box_index
-    poles_summary.csv  one row per pole: coverage counts + frame span
-    by_pole/<pole>/    that pole's matched frames, its box highlighted green
+    poles_index.csv      one row per (pole, image): pole_id -> image -> box_index
+    poles_summary.csv    one row per pole: coverage counts + frame span
+    pole_assessment.csv  one row per pole: pole_id, pole_index, lat/lon, image folder
+    by_pole/<pole>/      that pole's matched frames, its box highlighted green
 
-Read-only: consumes pole_box_matches.parquet + bboxes.parquet + the street images.
+Read-only: consumes pole_box_matches.parquet + bboxes.parquet + poles.parquet + the street images.
 No model, no re-matching. See documentation/pole_export_design.md.
 
 Run (all take --batch NAME, the route to export):
@@ -42,6 +43,7 @@ from config.paths import RoutePaths  # noqa: E402
 from detection.run_detection import load_detections  # noqa: E402
 from matching.find_isolated_poles import run_find_isolated_poles_pipeline  # noqa: E402
 from matching.matching_pipeline import load_matches  # noqa: E402
+from scripts.build_pole_catalog import load_pole_catalog  # noqa: E402
 from matching.visualize_matches import (  # noqa: E402
     _box_corners_for_frame, _load_font,
     MATCHED_COLOR, UNMATCHED_COLOR, ORPHAN_COLOR,
@@ -252,13 +254,53 @@ def export(route: RoutePaths, out_dir: Path, matched_only: bool = False,
     )
     summary.to_csv(out_dir / "poles_summary.csv", index=False)
 
+    # After rendering, so pole_dir reflects the folders that actually exist.
+    assessment = export_pole_assessment(route, matches, out_dir)
+
     # ----- report -----
     print(f"exported {detail.pole_id.nunique()} poles, {len(detail)} pole-image rows")
-    print(f"  poles_index.csv   ({len(detail)} rows)")
-    print(f"  poles_summary.csv ({len(summary)} poles)")
+    print(f"  poles_index.csv     ({len(detail)} rows)")
+    print(f"  poles_summary.csv   ({len(summary)} poles)")
+    print(f"  pole_assessment.csv ({len(assessment)} poles, "
+          f"{int((assessment.pole_dir != '').sum())} with an image folder)")
     if render_images:
-        print(f"  by_pole/          ({n_rendered} images rendered{' + crops' if crops else ''})")
+        print(f"  by_pole/            ({n_rendered} images rendered{' + crops' if crops else ''})")
     print(f"  -> {out_dir}")
+
+
+def export_pole_assessment(route: RoutePaths, matches: pd.DataFrame, out_dir: Path) -> pd.DataFrame:
+    """Write <out_dir>/pole_assessment.csv: one row per pole with its location and image folder.
+
+    Columns: pole_id, pole_index, lat, lon (from the route's pole catalog) and pole_dir,
+    the pole's by_pole/ folder relative to out_dir (same convention as rendered_path in
+    poles_index.csv, so the export folder stays portable). pole_dir is left blank when the
+    folder doesn't exist or holds no images — e.g. a pole that was never matched.
+
+    :param route: the route being exported (its pole catalog supplies lat/lon)
+    :param matches: the pole-frames being exported (already subset-filtered by export())
+    :param out_dir: the export folder; by_pole/ is expected directly under it
+    :return: the assessment table that was written
+    """
+    catalog = load_pole_catalog(route)[["pole_id", "lat", "lon"]]
+    poles = (
+        matches[["pole_id", "pole_index"]]
+        .drop_duplicates("pole_id")
+        .merge(catalog, on="pole_id", how="left", validate="one_to_one")
+        .sort_values("pole_index")
+        .reset_index(drop=True)
+    )
+
+    def pole_dir(pole_index, pole_id) -> str:
+        folder = out_dir / "by_pole" / _pole_folder_name(pole_index, pole_id)
+        has_images = folder.is_dir() and any(folder.glob("*.jpg"))
+        return str(folder.relative_to(out_dir)) if has_images else ""
+
+    poles["pole_dir"] = [pole_dir(r.pole_index, r.pole_id) for r in poles.itertuples()]
+    poles["pole_index"] = poles.pole_index.astype(int)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    poles.to_csv(out_dir / "pole_assessment.csv", index=False)
+    return poles
 
 
 def run_export_poles_pipeline():
