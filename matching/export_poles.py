@@ -298,6 +298,7 @@ def export_pole_assessment(route: RoutePaths, matches: pd.DataFrame, out_dir: Pa
     poles["pole_dir"] = [pole_dir(r.pole_index, r.pole_id) for r in poles.itertuples()]
     poles["pole_index"] = poles.pole_index.astype(int)
 
+    # Send images of each pole to claude
     out_dir.mkdir(parents=True, exist_ok=True)
     poles.to_csv(out_dir / "pole_assessment.csv", index=False)
     return poles
