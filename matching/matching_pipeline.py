@@ -1,17 +1,20 @@
+import argparse
 import pandas as pd
 
 from config import paths
+from config.paths import RoutePaths
 from detection.run_detection import load_detections
 from localization.localization_pipeline import load_observations, CENTER_HALF_FOV_DEG
-from scripts.build_pole_catalog import load_pole_catalog
 from util import localization_utils as lu
 from util.localization_utils import predict_x_px
 
-# Matching policy. GATE_PX ~ 2x the FOV-calibration residual (~78 px); a pole's
-# matched box must land within this many pixels of its prediction. THETA_MAX
-# drops poles near the FOV edge, where the rectilinear model / correspondence
-# break down (see documentation/matching_design.md).
-GATE_PX = 150.0
+# Matching policy. GATE_PX: a pole's matched box must land within this many pixels
+# of its prediction. Originally ~2x the FOV-calibration residual (~78 px) = 150;
+# raised to 225 by the F1-optimal point of the offline sweep against the
+# St Johnsbury ground truth (evaluate.py sweep; recall 47.5%->54.0% for ~1pt
+# precision). THETA_MAX drops poles near the FOV edge, where the rectilinear model
+# / correspondence break down (see documentation/matching_design.md).
+GATE_PX = 225.0
 THETA_MAX = 18.0
 # Drop detector boxes below this confidence before matching (kept raw in
 # bboxes.parquet; filtered here because it's a matching policy, not a data fact).
@@ -65,9 +68,14 @@ def assign_one_to_one(x_pred, x_box):
     return pairs
 
 
-def match_frame(fname, poles, boxes):
+def match_frame(fname, poles, boxes, gate_px=None):
     """Predict, score, assign, and gate one frame. Returns a list of match rows
-    (one per expected pole, including unmatched ones)."""
+    (one per expected pole, including unmatched ones).
+
+    gate_px overrides the module GATE_PX for this call (used by the offline
+    parameter sweep, which runs with gate_px=inf to get every assigned pole's
+    residual before any gating). Defaults to the module GATE_PX."""
+    gate = GATE_PX if gate_px is None else gate_px
     # Predict each pole's pixel column from its angle off the optical axis.
     poles = poles.assign(theta=poles.apply(append_bearings_onto_df_row, axis=1))
     poles = poles.assign(x_pred=predict_x_px(poles.theta, CENTER_HALF_FOV_DEG))
@@ -111,7 +119,7 @@ def match_frame(fname, poles, boxes):
         for pi, bj in assign_one_to_one(x_pred, x_box):
             pole, box = pole_list[pi], box_list[bj]
             residual = abs(pole.x_pred - box.x_box)
-            if residual <= GATE_PX:
+            if residual <= gate:
                 rows.append(row(pole, "matched", box, residual))
                 matched_poles.add(pi)
 
@@ -122,17 +130,21 @@ def match_frame(fname, poles, boxes):
     return rows
 
 
-def perform_matching():
+def match_all(route: RoutePaths, gate_px=None, min_score=MIN_SCORE):
+    """Run the matcher over every frame and return the match table (no writing).
+
+    Shared by perform_matching (default params) and the offline sweep (which
+    passes gate_px=inf to recover every assigned pole's residual pre-gating)."""
     # ----- Load Data -----
     # Pole Observations - Which frames show which pole
-    observations_df = load_observations()
+    observations_df = load_observations(route)
     # Pole Detections - Bounding Boxes per image
     detections_df = load_detections()
 
     # ----- Build Indexes -----
     obs_by_frame = dict(tuple(observations_df.groupby("image_filename")))  # frame -> its poles
     # Drop zero-detection sentinels and low-confidence boxes.
-    real = detections_df[(detections_df.box_index >= 0) & (detections_df.score >= MIN_SCORE)]
+    real = detections_df[(detections_df.box_index >= 0) & (detections_df.score >= min_score)]
     box_by_frame = dict(tuple(real.groupby("image_filename")))  # frame -> its boxes
 
     # ----- Match Poles to Bounding Boxes in Each Image -----
@@ -140,24 +152,30 @@ def perform_matching():
     for fname in sorted(obs_by_frame):
         poles = obs_by_frame[fname]
         boxes = box_by_frame.get(fname, real.iloc[0:0])  # boxes (empty df if none)
-        all_rows.extend(match_frame(fname, poles, boxes))
+        all_rows.extend(match_frame(fname, poles, boxes, gate_px=gate_px))
 
-    matches = pd.DataFrame(all_rows)
+    return pd.DataFrame(all_rows)
+
+
+def perform_matching(route: RoutePaths):
+    """Match one route's poles to boxes and write the match table into its route dir."""
+    matches = match_all(route)
+    matches_path = route.matches
 
     # ----- Write -----
-    paths.MATCHES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    matches.to_parquet(paths.MATCHES_PATH, compression="gzip", index=False)
+    matches_path.parent.mkdir(parents=True, exist_ok=True)
+    matches.to_parquet(matches_path, compression="gzip", index=False)
 
     # Human-readable CSV mirror (rounded floats) for manual review / comparison
     # against hand annotations.
-    csv_path = paths.MATCHES_PATH.with_suffix(".csv")
+    csv_path = matches_path.with_suffix(".csv")
     matches.round({"theta_deg": 1, "x_pred": 0, "x_box": 0, "residual_px": 1}) \
            .to_csv(csv_path, index=False)
 
     n_matched = (matches.status == "matched").sum()
     n_poles = len(matches)
     print(f"wrote {n_poles} pole-rows to:")
-    print(f"  {paths.MATCHES_PATH}")
+    print(f"  {matches_path}")
     print(f"  {csv_path}")
     print(f"  matched:          {n_matched} ({n_matched / n_poles:.0%})")
     print(f"  unmatched_no_box: {(matches.status == 'unmatched_no_box').sum()}")
@@ -167,14 +185,20 @@ def perform_matching():
     return matches
 
 
-def load_matches() -> pd.DataFrame:
-    """Load the pole<->box match table. Raises if matching hasn't been run."""
-    if not paths.MATCHES_PATH.exists():
+def load_matches(route: RoutePaths) -> pd.DataFrame:
+    """Load one route's pole<->box match table. Raises if matching hasn't been run."""
+    if not route.matches.exists():
         raise FileNotFoundError(
-            f"No matches at {paths.MATCHES_PATH}; run perform_matching first"
+            f"No matches at {route.matches}; run perform_matching first"
         )
-    return pd.read_parquet(paths.MATCHES_PATH)
+    return pd.read_parquet(route.matches)
+
+
+def main():
+    p = argparse.ArgumentParser(description="Match one route's poles to detected boxes.")
+    paths.add_batch_arg(p)
+    perform_matching(paths.route_paths(p.parse_args().batch))
 
 
 if __name__ == "__main__":
-    perform_matching()
+    main()

@@ -1,0 +1,21 @@
+scored 763 annotated poles
+
+category breakdown:
+  correct_match    317  (42%)
+  correct_reject    96  (13%)
+  detector_miss     18  (2%)
+  wrong_box        130  (17%)
+  missed           140  (18%)
+  false_match       62  (8%)
+
+matching metrics:
+  match precision:  62.3%
+  match recall:     54.0%
+  match F1:         57.8%
+  matcher accuracy: 55.4%  (excl. 18 detector misses)
+  detector recall:  97.0%  (587/605 visible poles boxed)
+
+geometry & diagnostics:
+  median residual (matched):  52.8 px
+  wrong_box median |theta|:   4.5 deg
+  missed breakdown:           unmatched_no_box 130, unmatched_edge 10

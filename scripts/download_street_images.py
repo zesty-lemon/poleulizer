@@ -7,7 +7,6 @@ any CWD.
 """
 from __future__ import annotations
 
-import argparse
 import os
 import shutil
 import sys
@@ -28,18 +27,20 @@ REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from config import paths  # noqa: E402
+from config.paths import RoutePaths  # noqa: E402
 
 # Inbox/archive workflow: drop new XMLs into new_routes/, the script processes
 # them and moves only the fully-downloaded ones into onboarded_routes/.
-DEFAULT_INBOX = paths.NEW_ROUTES_DIR
-DEFAULT_ARCHIVE = paths.ONBOARDED_ROUTES_DIR
-DEFAULT_OUT = paths.STREET_IMAGES_DIR
+INBOX_DIR = paths.NEW_ROUTES_DIR
+ARCHIVE_DIR = paths.ONBOARDED_ROUTES_DIR
+OUT_DIR = paths.STREET_IMAGES_DIR
 
 # HTTP tuning. BACKOFF_SECONDS is the sleep between retry attempts.
 CHUNK_BYTES = 64 * 1024
 CONNECT_TIMEOUT = 10
 READ_TIMEOUT = 30
 BACKOFF_SECONDS = (1, 2, 4)
+MAX_WORKERS = 8
 
 # The three camera views each annotation exposes under <source>.
 VIEWS = ("center", "left", "right")
@@ -54,8 +55,8 @@ class FrameView:
     batch: str
 
 
-def parse_frame_views(xml_path: Path, views: tuple[str, ...]) -> list[FrameView]:
-    """Walk the XML and return one FrameView per (annotation, requested view).
+def parse_frame_views(xml_path: Path) -> list[FrameView]:
+    """Walk the XML and return one FrameView per (annotation, view).
 
     Deduplicates by filename across the whole batch — two annotations that
     reference the same underlying JPG (source vehicle slowed and the same frame was
@@ -66,10 +67,12 @@ def parse_frame_views(xml_path: Path, views: tuple[str, ...]) -> list[FrameView]
     frames_by_filename: dict[str, FrameView] = {}
 
     for annotation in root.findall("annotation"):
-        source = annotation.find("source")
+        # Current VAIL export schema: <sources>/src_{center,left,right} (URLs).
+        # The rest of the schema is read in dataset_util/annotations_util.py.
+        source = annotation.find("sources")
         if source is None:
             continue
-        for view in views:
+        for view in VIEWS:
             url = (source.findtext(f"src_{view}") or "").strip()
             if not url or url.lower() == "none":
                 continue
@@ -154,22 +157,9 @@ def sweep_partial_files(out_dir: Path) -> None:
         partial.unlink()
 
 
-def parse_views(raw: str) -> tuple[str, ...]:
-    requested = tuple(v.strip().lower() for v in raw.split(",") if v.strip())
-    unknown = [v for v in requested if v not in VIEWS]
-    if unknown:
-        raise argparse.ArgumentTypeError(
-            f"unknown view(s): {unknown}. allowed: {VIEWS}"
-        )
-    return requested or VIEWS
-
-
 def process_xml(
     xml_path: Path,
     out_dir: Path,
-    views: tuple[str, ...],
-    limit: int | None,
-    max_workers: int,
     session: requests.Session,
 ) -> dict[str, int]:
     """Download every frame referenced by one XML. Returns per-status counts.
@@ -178,16 +168,14 @@ def process_xml(
     The XML is considered fully processed only when `missing == failed == 0`;
     the caller uses that to decide whether to archive it.
     """
-    all_frames = parse_frame_views(xml_path, views)
-    if limit is not None:
-        all_frames = all_frames[:limit]
+    all_frames = parse_frame_views(xml_path)
 
     cached_frames: list[FrameView] = []
     frames_to_fetch: list[FrameView] = []
     for frame in all_frames:
         (cached_frames if is_cached(frame, out_dir) else frames_to_fetch).append(frame)
 
-    count_by_view = {view: 0 for view in views}
+    count_by_view = {view: 0 for view in VIEWS}
     for frame in all_frames:
         count_by_view[frame.view] = count_by_view.get(frame.view, 0) + 1
     print(
@@ -210,7 +198,7 @@ def process_xml(
         return counts
 
     counter_lock = Lock()
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_frame = {
             executor.submit(download_one, session, frame, out_dir): frame
             for frame in frames_to_fetch
@@ -240,124 +228,84 @@ def process_xml(
     return counts
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Download center/left/right POV JPGs from VAIL annotation XMLs."
-    )
-    # Two operating modes:
-    #   default: process every *.xml in --inbox, archive successful ones
-    #   --xml:   one-off mode for ad-hoc processing, archive disabled
-    parser.add_argument(
-        "--xml",
-        type=Path,
-        default=None,
-        help="process a single XML (override; archive move is disabled in this mode)",
-    )
-    parser.add_argument("--inbox", type=Path, default=DEFAULT_INBOX)
-    parser.add_argument("--archive", type=Path, default=DEFAULT_ARCHIVE)
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    parser.add_argument("--max-workers", type=int, default=8)
-    parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument(
-        "--views",
-        type=parse_views,
-        default=VIEWS,
-        help=f"comma-separated subset of {VIEWS} (default: all)",
-    )
-    args = parser.parse_args()
+def archive_xml(xml_path: Path, counts: dict[str, int]) -> bool:
+    """Move a fully-downloaded XML to the archive. Returns True if archived.
 
-    out_dir: Path = args.out.expanduser().resolve()
+    Only archives when every referenced image is on disk. Otherwise logs an
+    error and leaves the XML in the inbox so the next run retries."""
+    if counts["missing"] > 0 or counts["failed"] > 0:
+        print(
+            f"  ERROR: {counts['missing']} missing + {counts['failed']} failed "
+            f"download(s) for {xml_path.name}; leaving in inbox for retry",
+            file=sys.stderr,
+        )
+        return False
+    target = ARCHIVE_DIR / xml_path.name
+    if target.exists():
+        print(
+            f"  ERROR: archive already contains {target.name}; "
+            f"leaving original in inbox to avoid silent overwrite",
+            file=sys.stderr,
+        )
+        return False
+    shutil.move(str(xml_path), str(target))
+    print(f"  archived -> {ARCHIVE_DIR.name}/{xml_path.name}")
+    return True
 
-    # Resolve which XMLs to process and whether to archive them after.
-    if args.xml is not None:
-        xml_path = args.xml.expanduser().resolve()
-        if not xml_path.is_file():
-            print(f"error: xml not found at {xml_path}", file=sys.stderr)
-            return 2
-        xml_files = [xml_path]
-        archive_dir: Path | None = None  # ad-hoc mode: never auto-move
-    else:
-        inbox_dir = args.inbox.expanduser().resolve()
-        archive_dir = args.archive.expanduser().resolve()
-        if not inbox_dir.is_dir():
-            print(f"error: inbox dir not found at {inbox_dir}", file=sys.stderr)
-            return 2
-        xml_files = sorted(inbox_dir.glob("*.xml"))
+
+def run_download_street_images_pipeline(route: RoutePaths | None = None) -> int:
+    """Download every JPG referenced by the inbox XML(s), archiving each fully-fetched XML.
+
+    With `route`, only that route's XML is processed; if it is not in the inbox
+    (already archived by an earlier run) the step is skipped. Without `route`,
+    every XML in the inbox is processed (CLI behaviour)."""
+    if not INBOX_DIR.is_dir():
+        print(f"error: inbox dir not found at {INBOX_DIR}", file=sys.stderr)
+        return 2
+    if route is not None:
+        xml_files = [INBOX_DIR / route.xml.name] if (INBOX_DIR / route.xml.name).exists() else []
         if not xml_files:
-            print(f"nothing to process: no XML files in {inbox_dir}. Download .xml files using Maplyzer UI and upload to this directory.")
+            print(f"download skipped: {route.xml.name} is not in the inbox "
+                  f"({'already archived' if route.xml.exists() else 'not found'})")
             return 0
-
-    if args.dry_run:
-        # Per-file plan, no HTTP. Useful for confirming the inbox is what you expect.
-        for xml_path in xml_files:
-            all_frames = parse_frame_views(xml_path, args.views)
-            if args.limit is not None:
-                all_frames = all_frames[: args.limit]
-            cached = sum(1 for f in all_frames if is_cached(f, out_dir))
-            print(
-                f"  {xml_path.name}: {len(all_frames)} frames | "
-                f"{cached} cached | {len(all_frames) - cached} to fetch"
-            )
+    else:
+        xml_files = sorted(INBOX_DIR.glob("*.xml"))
+    if not xml_files:
+        print(f"nothing to process: no XML files in {INBOX_DIR}. "
+              f"Download .xml files using Maplyzer UI and upload to this directory.")
         return 0
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    sweep_partial_files(out_dir)
-    if archive_dir is not None:
-        archive_dir.mkdir(parents=True, exist_ok=True)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    sweep_partial_files(OUT_DIR)
 
     session = build_session()
     print(f"processing {len(xml_files)} XML file(s) from inbox")
 
     aggregate = {"downloaded": 0, "cached": 0, "missing": 0, "failed": 0, "bytes": 0}
-    archived_count = 0
     kept_count = 0
 
     for xml_path in xml_files:
         print(f"\n[{xml_path.name}]")
-        counts = process_xml(
-            xml_path, out_dir, args.views, args.limit, args.max_workers, session
-        )
+        counts = process_xml(xml_path, OUT_DIR, session)
         for k in aggregate:
             aggregate[k] += counts.get(k, 0)
-
-        # Only archive when every referenced image is on disk. Otherwise log
-        # an error and leave the XML in the inbox so the next run retries.
-        if archive_dir is not None:
-            all_present = counts["missing"] == 0 and counts["failed"] == 0
-            if all_present:
-                target = archive_dir / xml_path.name
-                if target.exists():
-                    print(
-                        f"  ERROR: archive already contains {target.name}; "
-                        f"leaving original in inbox to avoid silent overwrite",
-                        file=sys.stderr,
-                    )
-                    kept_count += 1
-                else:
-                    shutil.move(str(xml_path), str(target))
-                    print(f"  archived -> {archive_dir.name}/{xml_path.name}")
-                    archived_count += 1
-            else:
-                print(
-                    f"  ERROR: {counts['missing']} missing + {counts['failed']} failed "
-                    f"download(s) for {xml_path.name}; leaving in inbox for retry",
-                    file=sys.stderr,
-                )
-                kept_count += 1
+        if not archive_xml(xml_path, counts):
+            kept_count += 1
 
     print(
         f"\ndone: downloaded={aggregate['downloaded']} cached={aggregate['cached']} "
         f"missing={aggregate['missing']} failed={aggregate['failed']} "
         f"total_bytes={aggregate['bytes']}"
     )
-    if archive_dir is not None:
-        print(f"      archived={archived_count} kept_in_inbox={kept_count}")
+    print(f"      archived={len(xml_files) - kept_count} kept_in_inbox={kept_count}")
 
     # Non-zero if any XML stayed in the inbox (incomplete download or collision).
-    if archive_dir is not None and kept_count > 0:
-        return 1
-    return 0 if aggregate["failed"] == 0 and aggregate["missing"] == 0 else 1
+    return 1 if kept_count > 0 else 0
+
+
+def main() -> int:
+    return run_download_street_images_pipeline()
 
 
 if __name__ == "__main__":

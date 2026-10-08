@@ -22,6 +22,8 @@ Loading downstream:
 import sys
 from pathlib import Path
 
+import argparse
+
 import pandas as pd
 from tqdm import tqdm
 
@@ -29,10 +31,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from config import paths
+from config.paths import RoutePaths
 from detection import detection_util
 
 STREET_IMAGES_DIR = paths.STREET_IMAGES_DIR
-OBS_PATH = paths.OBSERVATIONS_PATH
 BBOX_OUT_PATH = paths.BBOX_PATH
 
 # Flush to parquet every N images so a crash doesn't lose the whole batch.
@@ -71,17 +73,20 @@ def save_cache(cache: pd.DataFrame) -> None:
     cache.to_parquet(BBOX_OUT_PATH, compression="gzip", index=False)
 
 
-def run_detection_and_save(clear_cache: bool = True):
+def run_detection_and_save(route: RoutePaths, clear_cache: bool = False):
     """
     Put bounding boxes around all images located by the localization_pipeline.py
     Assumes localization_pipeline.py has already been run. Bounding Boxes are saved
     to bboxes.parquet file.
-    
+
     :param clear_cache: # Wipe bboxes.parquet before running. Use this when prompt/threshold/model/NMS
     changed and the old cache rows are stale. Leave False for normal resume runs.
+    :param route: which route's observations decide the image set. The bbox cache
+    itself is shared across routes (keyed by image filename), so it is never route-scoped.
 
     :return:
     """
+    obs_path = route.observations
 
     # 0. Optional cache wipe -- forces every image to be re-detected.
     if clear_cache and BBOX_OUT_PATH.exists():
@@ -90,12 +95,12 @@ def run_detection_and_save(clear_cache: bool = True):
 
     # 1. Figure out which images we need detections for. The set is exactly
     #    the unique image filenames in the localization observations table.
-    if not OBS_PATH.exists():
+    if not obs_path.exists():
         raise FileNotFoundError(
-            f"observations parquet not found at {OBS_PATH}; "
+            f"observations parquet not found at {obs_path}; "
             f"run localization/localization_pipeline.py first"
         )
-    obs = pd.read_parquet(OBS_PATH)
+    obs = pd.read_parquet(obs_path)
     all_images = sorted(obs["image_filename"].dropna().unique())
 
     # 2. Skip anything already cached. An image is "done" if its filename
@@ -140,7 +145,12 @@ def run_detection_and_save(clear_cache: bool = True):
 
 
 def main() -> None:
-    run_detection_and_save(clear_cache=True)
+    p = argparse.ArgumentParser(description="Detect pole bounding boxes for one route's frames.")
+    paths.add_batch_arg(p)
+    p.add_argument("--clear-cache", action="store_true",
+                   help="wipe the SHARED bbox cache first (renumbers box_index; voids ground truth)")
+    args = p.parse_args()
+    run_detection_and_save(paths.route_paths(args.batch), clear_cache=args.clear_cache)
 
 
 if __name__ == "__main__":

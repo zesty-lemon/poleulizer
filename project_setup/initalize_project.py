@@ -1,14 +1,21 @@
 from config import paths
 from scripts import build_pole_catalog, download_street_images
 
-DATA_DIR = paths.DATA_DIR
-DATA_SUBDIRS = ("pole_catalog", "route_annotations", "street_images")
+# Every shared directory the pipeline expects under ../data/ (per-route dirs are
+# created by the stages that write them). Parents are created along the way.
+DATA_DIRS = (
+    paths.ROUTES_DIR,
+    paths.NEW_ROUTES_DIR,        # inbox: drop annotation XMLs here
+    paths.ONBOARDED_ROUTES_DIR,
+    paths.STREET_IMAGES_DIR,
+    paths.DETECTION_DIR,
+)
 
+# RUN THIS SCRIPT BEFORE ANYTHING ELSE
 
 def create_data_dirs():
-    """Create /data and its top-level subdirs one level above the project root."""
-    for name in DATA_SUBDIRS:
-        path = DATA_DIR / name
+    """Create any missing data dirs under ../data/, one level above the project root."""
+    for path in DATA_DIRS:
         existed = path.is_dir()
         path.mkdir(parents=True, exist_ok=True)
         print(f"  {'exists' if existed else 'created'}: {path}")
@@ -19,7 +26,7 @@ def is_initalized() -> bool:
     already_initalized = False
 
     # Check directories have already been created
-    if all((DATA_DIR / name).is_dir() for name in DATA_SUBDIRS):
+    if all(path.is_dir() for path in DATA_DIRS):
         already_initalized = True
 
     return already_initalized

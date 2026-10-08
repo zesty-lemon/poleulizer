@@ -29,6 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from config import paths  # noqa: E402
+from config.paths import RoutePaths  # noqa: E402
 from detection.run_detection import load_detections  # noqa: E402
 from matching.matching_pipeline import load_matches  # noqa: E402
 
@@ -105,7 +106,8 @@ def _draw_orphan_boxes(draw, box_corners, matched_box_ids) -> int:
 
 
 def visualize_frame(fname: str, save: Path | None = None,
-                    matches=None, boxes=None) -> None:
+                    matches=None, boxes=None,
+                    route: RoutePaths | None = None) -> None:
     """Render the overlay for one frame, then either save it or open it.
 
     matches/boxes can be passed in so batch mode loads them once instead of
@@ -113,7 +115,8 @@ def visualize_frame(fname: str, save: Path | None = None,
     """
     # ----- 1. Gather this frame's data -----
     if matches is None:
-        matches = load_matches()
+        assert route is not None, "visualize_frame needs matches= or route="
+        matches = load_matches(route)
     if boxes is None:
         boxes = load_detections()
 
@@ -185,14 +188,14 @@ def _busiest_matched_frame(matches) -> str:
     return matched.groupby("image_filename").size().idxmax()
 
 
-def _render_all(out_dir: Path, label_boxes: bool = False) -> None:
-    """Render every frame into out_dir (loads data once).
+def _render_all(route: RoutePaths, out_dir: Path, label_boxes: bool = False) -> None:
+    """Render every frame of one route into out_dir (loads data once).
 
     label_boxes=True renders the box-index annotation aid instead of the match
     overlay.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    matches = load_matches()
+    matches = load_matches(route)
     boxes = load_detections()
 
     frames = sorted(matches.image_filename.unique())
@@ -208,8 +211,9 @@ def _render_all(out_dir: Path, label_boxes: bool = False) -> None:
     print("done")
 
 
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser(description="Visualize pole<->box matches for a frame.")
+    paths.add_batch_arg(parser)
     parser.add_argument("--frame", default=None,
                         help="image_filename to render (default: busiest matched frame)")
     parser.add_argument("--save", type=Path, default=None,
@@ -220,24 +224,25 @@ def main() -> int:
                         help="annotation aid: label each box by box_index instead of "
                              "showing the match overlay")
     args = parser.parse_args()
+    route = paths.route_paths(args.batch)
 
     # Batch mode: render everything and exit.
     if args.all is not None:
-        _render_all(args.all, label_boxes=args.label_boxes)
-        return 0
+        _render_all(route, args.all, label_boxes=args.label_boxes)
+        return
 
     # Single-frame mode: default to the busiest matched frame if none given.
+    matches = load_matches(route)
     fname = args.frame
     if fname is None:
-        fname = _busiest_matched_frame(load_matches())
+        fname = _busiest_matched_frame(matches)
         print(f"no --frame given; using busiest matched frame: {fname}")
 
     if args.label_boxes:
         label_boxes_frame(fname, args.save)
     else:
-        visualize_frame(fname, args.save)
-    return 0
+        visualize_frame(fname, args.save, matches=matches)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
