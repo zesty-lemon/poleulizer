@@ -1,0 +1,78 @@
+Enhancement idea: stricter box de-duplication as a MATCHING-time filter
+=======================================================================
+Status: idea only, not implemented. Written 2026-10-12.
+
+Problem
+-------
+Grounding-DINO often emits a wide, low-scoring box that spans two adjacent poles
+alongside a tight box on each pole (e.g. Batch-5 frame016_000029338808: box 6
+encloses box 2 completely, scores 0.33 vs 0.42). Detection-time NMS runs at
+IoU 0.5 (DEFAULT_NMS_IOU in detection/detection_util.py), but a box 2-3x larger
+than the one it encloses only reaches IoU ~0.3-0.4, so both survive. The matcher's
+only other filter is MIN_SCORE = 0.3, which box 6 clears.
+
+Nothing downstream de-duplicates: matching_pipeline.py, evaluate.py,
+find_isolated_poles.py and export_poles.py all consume the cache as-is. The
+duplicate then consumes a slot in the one-to-one assignment and causes wrong_box
+errors in crowded frames.
+
+Measured effect (Batch-5 ground truth, 690 poles, NMS re-applied to the cached
+boxes and the matcher re-run; GT rows pointing at a suppressed box remapped to
+the surviving overlapping box)
+-------------------------------------------------------------------------------
+  NMS IoU   boxes   full P / R / F1          isolated P / R / F1
+  0.50      5790    63.9 / 55.9 / 59.7       73.6 / 75.4 / 74.5   (current)
+  0.40      5564    66.1 / 57.4 / 61.4       73.6 / 75.4 / 74.5
+  0.35      5454    66.8 / 57.8 / 62.0       74.4 / 76.2 / 75.3
+  0.30      5330    69.4 / 59.5 / 64.0       76.7 / 78.6 / 77.6
+
+Gain is almost entirely wrong_box -> correct_match (108 -> 95 at 0.35). Missed and
+false_match are flat. Isolated poles barely move (a lone pole just takes the
+nearest box). 0.30 starts merging genuinely distinct poles (2 cases in GT) and
+leans harder on GT remapping (30 rows), so 0.35-0.40 is the safe range.
+
+Caveats: only 14 of the 108 current wrong_box errors involve a chosen box that
+overlaps the true box by IoU >= 0.35, so this is a bounded win, not a fix for
+the main error source (distractor poles / prediction offset). One route only.
+Rules based on containment (drop a big box that encloses a small one) catch more
+duplicates but delete real poles (9 GT pairs where a far pole's box sits inside a
+near pole's box). Aspect-ratio filtering is not discriminative.
+
+Recommended implementation: filter in matching, NOT detection
+------------------------------------------------------------
+Re-running detection with a new threshold rebuilds bboxes.parquet and renumbers
+box_index, which invalidates the hand annotation (690 rows). Instead apply NMS
+(torchvision.ops.nms, same call as detection_util) in match_all() next to the
+MIN_SCORE filter - the comment there already frames score filtering as "a matching
+policy, not a data fact", and overlap suppression is the same kind of policy.
+
+  - Raw cache untouched; box_index values never change; annotation stays valid.
+  - Boxes are removed from the candidate set, survivors keep their indices.
+  - Result is practically identical to detection-time NMS at the same threshold
+    (boxes already removed at 0.5 would also be removed at 0.35).
+  - Record the threshold in the match table (like the detection rows record theirs).
+
+One-time cleanup: ground_truth.csv rows whose true_box_index was suppressed
+(19 rows at 0.35) are remapped to the surviving box with highest IoU, either by a
+script that rewrites the CSV (back it up first) or a remap step in
+evaluate._read_truth. Spot-check those rows; no re-annotation needed.
+
+Optional: give visualize_matches --label-boxes a flag to hide suppressed boxes so
+the annotation images match what the matcher sees (indices are unchanged either
+way).
+
+Related: joint (DP) assignment on branch feature/ai_slop_test
+------------------------------------------------------------
+Commit 532c0a5 replaces the greedy left-to-right assign_one_to_one() with an exact
+dynamic-programming alignment (unmatched-pole cost = GATE_PX). It is NOT on main.
+Scored on the same GT with the current pipeline:
+
+  assignment     NMS    full P / R / F1          isolated
+  greedy (main)  0.50   63.9 / 55.9 / 59.7       74.5 F1
+  greedy         0.35   66.8 / 57.8 / 62.0       75.3
+  DP joint       0.50   69.0 / 66.4 / 67.7       74.5
+  DP joint       0.35   72.7 / 69.6 / 71.1       75.3
+
+The two changes are complementary (+8 F1 from DP, +3.4 more from NMS 0.35).
+The branch is based on 428905c, 18 commits behind main (pre route-scoped
+layout), so the DP function should be ported by hand rather than merged.

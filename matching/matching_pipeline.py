@@ -15,6 +15,10 @@ from util.localization_utils import predict_x_px
 # precision). THETA_MAX drops poles near the FOV edge, where the rectilinear model
 # / correspondence break down (see documentation/matching_design.md).
 GATE_PX = 225.0
+# Cost of leaving a pole unmatched inside the joint assignment (assign_one_to_one).
+# Set equal to the gate so the assignment never prefers a pairing the gate would
+# reject anyway: a pole is paired only when some box is within this many pixels.
+UNMATCHED_COST_PX = GATE_PX
 THETA_MAX = 18.0
 # Drop detector boxes below this confidence before matching (kept raw in
 # bboxes.parquet; filtered here because it's a matching policy, not a data fact).
@@ -38,33 +42,69 @@ def append_bearings_onto_df_row(pole_row):
     return theta
 
 
-def assign_one_to_one(x_pred, x_box):
-    """Monotonic sorted-alignment of poles -> boxes.
+def assign_one_to_one(x_pred, x_box, unmatched_cost=None):
+    """Joint monotonic alignment of poles -> boxes (minimum total cost).
 
-    Because x_pred is monotonic in theta, the optimal matching never crosses, so
-    we can sort both sides and walk them together, taking the nearest available
-    box for each pole. Returns a list of (pole_position, box_position) index
-    pairs into the *input* arrays (positional, not DataFrame labels).
+    Because x_pred is monotonic in theta, the optimal one-to-one matching never
+    crosses, so the problem is a sequence alignment: sort poles by x_pred, sort
+    boxes by x_box, and find the non-crossing pairing that minimizes
+
+        sum(|x_pred - x_box| over matched pairs) + unmatched_cost * (#unmatched poles)
+
+    Unmatched boxes are free (they are left-of-road / unlabeled poles / false
+    positives and are expected). The alignment is solved exactly by dynamic
+    programming over the two sorted lists, so every pole's pairing is chosen
+    jointly with its neighbours'. The previous greedy left-to-right walk let the
+    leftmost pole take its nearest box first and never revisited that choice;
+    on the St Johnsbury ground truth that cost ~8 F1 points (one pole stealing
+    a neighbour's box accounted for 82 of 270 wrong_box/missed errors).
+
+    unmatched_cost defaults to the module UNMATCHED_COST_PX (= GATE_PX), so a
+    pole is only paired when some box lies within the gate; the gate check in
+    match_frame then simply confirms it.
+
+    Returns a list of (pole_position, box_position) index pairs into the *input*
+    arrays (positional, not DataFrame labels), in pole order.
     """
-    pole_order = sorted(range(len(x_pred)), key=lambda i: x_pred[i])
-    box_order = sorted(range(len(x_box)), key=lambda j: x_box[j])
+    if unmatched_cost is None:
+        unmatched_cost = UNMATCHED_COST_PX
+    n, m = len(x_pred), len(x_box)
+    if n == 0 or m == 0:
+        return []
 
+    pole_order = sorted(range(n), key=lambda i: x_pred[i])
+    box_order = sorted(range(m), key=lambda j: x_box[j])
+    xp = [x_pred[i] for i in pole_order]
+    xb = [x_box[j] for j in box_order]
+
+    # D[i][j] = min cost of aligning the first i poles with the first j boxes.
+    # Moves: skip pole (cost unmatched_cost), skip box (free), match (residual).
+    INF = float("inf")
+    D = [[INF] * (m + 1) for _ in range(n + 1)]
+    for j in range(m + 1):
+        D[0][j] = 0.0                      # no poles left: remaining boxes are free
+    for i in range(1, n + 1):
+        D[i][0] = i * unmatched_cost       # no boxes left: every pole unmatched
+        for j in range(1, m + 1):
+            D[i][j] = min(
+                D[i - 1][j - 1] + abs(xp[i - 1] - xb[j - 1]),   # match pole i, box j
+                D[i - 1][j] + unmatched_cost,                   # pole i unmatched
+                D[i][j - 1],                                    # box j unclaimed
+            )
+
+    # Backtrack. On ties prefer a match, then skipping the pole, then the box.
     pairs = []
-    b = 0
-    for pi in pole_order:
-        # Advance through boxes; greedily take the closest still-available box.
-        best_bj, best_d = None, None
-        for k in range(b, len(box_order)):
-            bj = box_order[k]
-            d = abs(x_pred[pi] - x_box[bj])
-            if best_d is None or d < best_d:
-                best_bj, best_d, best_k = bj, d, k
-            else:
-                # Distances are V-shaped in sorted order; once they grow, stop.
-                break
-        if best_bj is not None:
-            pairs.append((pi, best_bj))
-            b = best_k + 1  # consume boxes up to and including the chosen one
+    i, j = n, m
+    while i > 0 and j > 0:
+        here = D[i][j]
+        if here == D[i - 1][j - 1] + abs(xp[i - 1] - xb[j - 1]):
+            pairs.append((pole_order[i - 1], box_order[j - 1]))
+            i, j = i - 1, j - 1
+        elif here == D[i - 1][j] + unmatched_cost:
+            i -= 1
+        else:
+            j -= 1
+    pairs.reverse()
     return pairs
 
 
