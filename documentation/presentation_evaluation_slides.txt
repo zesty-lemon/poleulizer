@@ -1,0 +1,106 @@
+EVALUATION & RESULTS  (~5 min, 7 slides)
+Numbers from final_report/reports_for_presentation/full_report.txt and
+isolated_report.txt. Items marked [outline] come from presentation_outline.txt
+(the earlier 690-row run) and were not re-checked against the new reports.
+
+
+Slide 1: Building ground truth
+- Hand-labeled every (pole, frame) pair on US 5 St Johnsbury: which box is
+  really the pole, or "no box" / "not visible"
+- 763 pole-frames, labeled once against frozen detections
+- Same ground truth re-scored against every matcher version since
+- Scored as precision / recall / F1 on the "there is a box and it's this one"
+  decision, so the many correctly-empty frames don't inflate the score
+- A pole_visible flag separates detector misses from matcher misses
+
+
+Slide 2: Headline results (full route, 763 pole-frames)
+  Match precision    62.3%
+  Match recall       54.0%
+  Match F1           57.8%
+  Matcher accuracy   55.4%   (excluding detector misses)
+  Detector recall    97.0%   (587 / 605 visible poles boxed)
+  Median residual    52.8 px on matched pairs
+- Detector almost never misses a pole. The errors are the matcher's.
+
+
+Slide 3: Where the errors go
+  correct match    317   42%
+  correct reject    96   13%
+  wrong box        130   17%
+  missed           140   18%
+  false match       62    8%
+  detector miss     18    2%
+- Wrong box: the right box was in the frame, the matcher picked a neighbor
+- Wrong-box errors sit near image center (median |theta| 4.5 deg), not at
+  the edges, so a tighter angle gate wouldn't help
+- Missed: almost all "no box within the gate" (130), only 10 at the frame edge
+- Cause: near the vanishing point a far-ahead right pole and a left-of-road
+  pole land on nearly the same pixel column; one frame can't separate them
+
+
+Slide 4: Pole 6, frame by frame  [outline]
+  frame  theta  matched  true  verdict
+   17     2.4      0      4    wrong box
+   20     2.3      0      4    wrong box
+   23     2.1      4      2    wrong box
+   25     2.5      5      0    wrong box
+   26     3.0      -      0    missed
+   27     3.6      3      3    correct
+   29     5.1      3      3    correct
+   31     8.2      5      5    correct
+   32    11.8      5      6    wrong box
+- Far away (theta ~2 deg, near center) the pole is a sliver among several
+  near-center boxes, and the matcher picks wrong frame after frame
+- Closer and off-center (frames 27-31), every match is right
+- One pole, but it is the whole error story in miniature
+- This is why temporal consistency is the next step
+  (Speaker note: the honest slide. Pole 6 shows both the success and the
+  failure mode.)
+
+
+Slide 5: The crowding problem
+- The matcher works one frame at a time: for each catalog pole, predict a
+  pixel column, pick the nearest box
+- On US 5 a frame rarely holds just one pole
+    poles in frame     1     2     3     4
+    frames           169   116    83   12      (380 frames)
+- Median two poles per frame, up to four, and each pole appears in ~15
+  frames as the car approaches
+- Poles are ~48 m apart on these roads, so neighbors are the norm  [outline]
+- Near the vanishing point, two poles 50 m apart project to nearly the same
+  column. The predicted positions overlap, and the nearest box is a coin flip
+- This is the "wrong box" and "false match" bucket from slide 3: the right
+  box was there, a neighbor's box was closer
+
+
+Slide 6: Isolating the matcher from the crowd
+- Question: how good is the matcher when there is nothing to confuse it with?
+- Define an isolated pole-frame: the localization step places exactly one
+  catalog pole in that frame
+- Computed from the observations alone, no hand labeling, so it runs on any
+  route
+- Per pole-frame, not per pole: a pole is usually alone when the car is
+  close to it and shares its earlier, farther frames with neighbors
+- Still a real test: the frame can hold several detector boxes (other
+  poles, signs, false positives). Only the competing catalog pole is gone
+- US 5: 169 of 698 pole-frames (24%), covering 26 of 52 poles
+- Same matcher, same gate, same ground truth. Only the subset changes
+  (Speaker note: if the score jumps, the ceiling is crowding, not the
+  geometry or the detector. If it doesn't, the matcher itself is the limit.)
+
+
+Slide 7: The density result
+                           n    precision   recall    F1
+  Pole alone in frame     176     81.7%     81.1%    81.4%
+  All poles               763     62.3%     54.0%    57.8%
+- Same matcher, same gate: a pole with no competitor in its frame scores
+  24 F1 points higher
+- Detector recall on isolated poles: 99.2%
+- The ceiling is assignment ambiguity from pole density, not the geometry
+  or the detector
+- No sparser located object class exists in the data (trees and rocks are
+  clustered, bridge piers have no GPS), so the fix has to come from the
+  matcher  [outline]
+- Next step: use the frames where a pole is alone to anchor its identity,
+  then carry that through the crowded frames (temporal consistency)

@@ -1,0 +1,706 @@
+POLEULIZER — 45-MINUTE PRESENTATION OUTLINE
+Generated 2026-09-30. Numbers were pulled from the route XMLs in example_routes/
+and from the current pipeline outputs in ../data/routes/ (evaluate.py compare,
+run today). Where a bullet is a claim rather than a measurement, it is marked
+[verify].
+
+Running example used in every "Output" block: pole 6 on US 5 St Johnsbury,
+pole_id geohash:druu9jqbs, at 44.413732, -72.016907, seen from frame 29
+(image 000029443056_ROW_20240619.104856.jpg). Frame 29 also contains pole 7,
+so it shows a two-pole assignment. Every record below is real and was
+pulled from the data today.
+
+Timing: ~36 min talk + ~9 min questions, 28–32 slides.
+  1. Motivation ............ 4 min
+  2. Data .................. 4 min
+  3. Problem statement ..... 2 min
+  4. Pipeline overview ..... 2 min
+  5. Localization .......... 5 min
+  6. Detection ............. 3 min
+  7. Matching .............. 6 min
+  8. Export ................ 2 min
+  9. Evaluation & results .. 5 min
+ 10. Limitations & future .. 2 min
+ 11. Summary ............... 1 min
+
+Paper mapping: 1+3 = Introduction, 2 = Data, 4–8 = Methods, 9 = Results,
+10 = Discussion, 11 = Conclusion.
+
+
+=====================================================================
+1. MOTIVATION
+=====================================================================
+
+Slide: The safety problem
+- Utility poles are among the deadliest fixed objects on the roadside:
+  roughly 850–900 US deaths per year, ~2% of all traffic deaths and ~4% of
+  roadway-departure deaths (FHWA-SA-21-024) [verify exact figures in PDF]
+- Trees and poles together account for 63% of fixed objects struck in
+  roadway-departure crashes (FHWA) [verify]
+- The hazard is concentrated: poles close to the lane, on the outside of
+  curves, and at intersections take a disproportionate share of strikes
+- Vermont's rural two-lane roads are exactly this environment: poles at the
+  edge of narrow shoulders, no curb or guardrail between them and traffic
+
+Slide: Why agencies can't act on it today
+- You can't manage what you haven't mapped: most DOTs have no current,
+  georeferenced inventory of poles in the clear zone
+- Clear-zone assessments are done project by project, so a hazardous pole
+  on a road not scheduled for reconstruction is never evaluated
+- Field inventories need crews with GPS units walking the road: expensive,
+  slow, rarely repeated
+- Manual review of drive-by imagery is the current alternative, and it is
+  tedious enough that annotation is incomplete
+
+Slide: Utilities have the same blind spot
+- Wood poles are inspected on an 8–12 year cycle (NAWPC; 52 Pa. Code
+  § 57.198) at under $20 per pole (Bonaccorso, Seattle City Light)
+- Between inspections, problems are found reactively: after a storm, a
+  crash, or a customer complaint
+- Vegetation contact is a leading cause of distribution outages, and it is
+  fully visible from the road
+
+Slide: Why now
+- VTrans already drives the state road network collecting multi-camera
+  imagery with GPS and heading on every frame. The data exists.
+- Object detection is now good enough to find poles reliably in that
+  imagery. The hard parts are deciding which frames show which pole and
+  keeping a stable identity across frames. That is this project.
+- A pole that is a unique, georeferenced record with its image evidence
+  attached enables what neither agency has: year-over-year change detection
+
+Slide: The payoff
+- VTrans: a clear-zone hazard inventory with image evidence per pole,
+  refreshed every survey at near-zero marginal cost
+- Utilities: a condition screen that directs expensive groundline
+  inspections to the poles that need them
+- Both: one shared dataset, from imagery already being collected
+
+
+=====================================================================
+2. DATA
+=====================================================================
+
+Slide: The camera car
+- VTrans right-of-way survey vehicle, driven statewide in summer 2024
+- Three forward-facing cameras per capture: center, forward-left,
+  forward-right
+- 3840 x 2160 images, one capture roughly every 8 m of travel
+- Each frame tagged with GPS latitude/longitude and vehicle heading
+- Collected for pavement and asset management, not for pole work
+  (Speaker note: show one center frame with the left/right views and the
+  aerial thumbnail beside it. Nothing was collected for this project.)
+
+Slide: Routes
+  Batch  Road                             Type        Frames   Length  Pole labels
+  1      VT 15 Hardwick, VT 9 Brattleboro Rural        1,882  15.0 km      181
+  2      VT 105 Sheldon                   Rural          995   7.9 km       87
+  3      VT 17 Addison                    Rural          988   7.8 km       60
+  4      VT 125 Ripton                    Rural          984   7.8 km       48
+  5      US 5 St Johnsbury                Rural          828   6.6 km       56
+  6      VT 116 Bristol                   Rural          938   7.5 km       70
+  7–11   I-89, I-91, I-189                Interstate   5,362    43 km        5
+         Total                                        11,977   ~96 km      507
+- Six rural state routes, five interstate segments
+- Interstates have almost no poles: their roadsides are continuous
+  guardrail and wide clear zones, so the pole work is on the rural routes
+- One batch is not one drive. Batch-5 is three capture sessions on
+  different days stitched under one label; GPS continuity holds only
+  within a session
+
+Slide: Annotations (VAIL / maplyzer)
+- Human annotators reviewed every frame in a web tool and labeled each
+  roadside separately (right side, left side)
+- Per side, per frame: clear-zone obstruction code, barrier type, slope,
+  and a list of rigid objects (pole, tree, rock, other)
+- Each utility pole is labeled ONCE, at the frame where the car is beside
+  it, with a GPS point placed on the aerial view
+- No bounding boxes and no image coordinates: the label says "this pole
+  exists here on the map," not "here it is in the picture"
+- 507 pole labels across the rural routes; only right-of-road poles are
+  used in this project
+
+Slide: What the data does and doesn't tell us
+- Does: where each labeled pole is on the map; camera position and heading
+  for every frame
+- Doesn't: which frames show the pole, where it is in the image, or whether
+  the annotators caught every pole
+- The catch: the labeled frame is the one frame where the pole is
+  off to the side and OUT of the forward cameras' view
+- At 8 m spacing a pole is visible for ~15 consecutive frames before the
+  labeled frame, so every pole is a multi-view problem
+- Annotation is incomplete: on US 5 there are visible poles the annotators
+  didn't mark, so annotated counts are a floor [verify you're comfortable
+  saying this to VTrans]
+- Ground truth for evaluation was built by hand: 690 pole-frame pairs
+  covering 51 poles on US 5
+
+OUTPUT OF THIS STAGE (the raw input to everything else)
+  High level: one XML per route; one <annotation> per frame carrying the
+  frame's GPS/heading, image URLs, and per-side labels.
+  Example record (frame 29 of US 5, trimmed):
+    <filename>000029443056_ROW_20240619.104856.jpg</filename>
+    <location>
+      <latitude>44.413401</latitude>
+      <longitude>-72.017124</longitude>
+      <heading>20.03</heading>
+    </location>
+    <sides><right>
+      <clear_zone><range>2</range><obstruction>12</obstruction></clear_zone>
+      <barrier><type>1</type><range>3</range></barrier>
+      <rigids>None</rigids>          <- no pole labeled ON this frame;
+    </right></sides>                    pole 6 is labeled 3 frames later,
+                                        at closest approach
+
+
+=====================================================================
+3. PROBLEM STATEMENT
+=====================================================================
+
+Slide: The goal in one sentence
+- For every labeled pole, find every frame and bounding box that shows it,
+  under one stable pole ID
+- Output: a table (pole_id, frame, box), plus a per-pole image folder a
+  human or a model can review
+
+Slide: Three sub-problems
+- Localization: given the pole's map position and the car's track, which
+  earlier frames had it in view? (geometry)
+- Detection: in those frames, where are the poles in the image? (vision)
+- Matching: which detected box is THIS pole, when several poles and
+  distractors are in the same frame? (assignment)
+  (Speaker note: this is the slide for the grid graphic: one pole, one car
+  position, lat/long axes, camera FOV cone.)
+
+Slide: Why it isn't just "run a detector"
+- A detector finds poles but doesn't know which pole is which
+- Frames contain a median of 2 expected poles and ~4 detected boxes
+- Downstream condition assessment needs per-pole evidence, not per-frame
+  presence
+
+
+=====================================================================
+4. PIPELINE OVERVIEW
+=====================================================================
+
+ONE-LINER
+  - Map dot in, boxed photos out: five stages, one command
+
+IN PLAIN ENGLISH
+  The annotators gave us a dot on a map for each pole. We want, for each
+  dot, every photo that shows that pole with a box drawn around it. Five
+  steps get there: read the labels in (ingest), figure out which photos
+  should contain each pole (localization), find all the poles in those
+  photos (detection), decide which found pole is which labeled pole
+  (matching), and collect the results per pole (export). Then we check the
+  answers against a hand-labeled set (evaluation).
+
+  The ingest step covered in this section: read the XML, download the
+  photos, and give every labeled pole a permanent ID based on where it is
+  on the map, so the same pole gets the same ID no matter who labeled it
+  or when.
+
+Slide: Pipeline diagram
+  VAIL XML -> download images -> pole catalog (geohash IDs)
+          -> localization (FOV walk-back: which frames show each pole)
+          -> detection (Grounding-DINO boxes on those frames, cached)
+          -> matching (predict pixel column -> assign boxes -> gate)
+          -> export (per-pole CSV + image folders)
+          -> evaluation (against hand ground truth; off to the side)
+- Each stage reads the previous stage's table and writes one of its own;
+  the next five sections walk through them in this order
+- One command onboards a route end to end
+  (pipelines/onboard_new_routes.py --batch <name>)
+- All generated data lives outside the repo; the XML is the only source of
+  truth and everything else is regenerable
+
+Slide: Pole identity (the ingest step)
+- pole_id = geohash-9 of the annotator's GPS point (~5 m cell)
+- Two labels of the same physical pole, on different passes or batches,
+  land in the same cell and collapse to one record
+- No back-projection needed for identity; the map position is the anchor
+
+OUTPUT OF THIS STAGE: pole_catalog/poles.parquet
+  High level: one row per unique labeled pole. US 5: 55 poles (56 labels,
+  1 duplicate collapsed). VT 15/9: 176 poles.
+  Example record:
+    pole_id       geohash:druu9jqbs
+    lat           44.413732
+    lon           -72.016907
+    side          right
+    batch         Batch-5-US_5_St_Johnsbury_(...)_all
+    source_frame  000029483239_ROW_20240619.104856.jpg   <- the frame it
+                                                            was labeled on
+
+
+=====================================================================
+5. LOCALIZATION
+=====================================================================
+
+ONE-LINER
+  - Which photos should contain this pole? Geometry, no pixels.
+
+IN PLAIN ENGLISH
+  Which photos should show this pole? The pole was labeled at the moment
+  the car drove past it, when it was out of the windshield's view. So we
+  rewind: step back through the photos taken just before, and at each one
+  ask whether the pole, given where the car was and which way it faced,
+  would have been inside the camera's view. We don't look at the pixels
+  at all here; it's pure geometry from GPS. The answer is a list of
+  (pole, photo) pairs: "pole 6 should be somewhere in photos 17 through
+  32." It says whether the pole is in the photo, not where in the photo.
+
+Slide: The geometric setup
+- The labeled frame is at closest approach: the pole is ~90 degrees off
+  the heading, outside every forward camera
+- So we walk BACKWARDS through earlier frames, while the car was still
+  approaching, and ask at each one: is the pole inside the camera's cone?
+  (Speaker note: the grid graphic again, with a sequence of car positions
+  and the FOV cone sweeping over the pole.)
+
+Slide: The visibility test
+- At frame M: bearing from car GPS to pole GPS, minus vehicle heading,
+  gives the pole's angle off the optical axis (theta)
+- In view if |theta| <= half-FOV; the walk-back stops after 20 frames or
+  at a batch boundary
+- Center camera only so far; the left/right cameras are unused
+- Result: an observations table, one row per (pole, frame)
+
+Slide: Calibrating the camera from the data itself
+- No intrinsics were provided with the imagery, and EXIF carries only GPS
+- Estimated the horizontal FOV from the pipeline's own outputs: within a
+  frame, poles sorted by angle must correspond to boxes sorted by pixel x
+  (monotonicity), which gives correspondences without uniqueness
+- Fit the pinhole model x = (W/2)(1 + tan(theta)/tan(HFOV/2)) by robust
+  weighted least squares; result half-FOV = 19.5 degrees
+- Correspondence is clean inside ~18 degrees and breaks beyond it (lens
+  distortion), so wide-angle poles are skipped rather than trusted
+  (Speaker note: matching reuses this same projection to predict pixel
+  columns; say so here so section 7 doesn't come out of nowhere.)
+
+Slide: What localization produces
+- US 5: 52 poles, 698 pole-frame observations, 380 unique images
+- VT 15/9: 152 poles, 1,901 observations, 1,002 images
+- Median visibility window: 15 frames per pole (~120 m of approach)
+- Median 2 expected poles per frame: windows overlap, which is what makes
+  matching hard
+
+OUTPUT OF THIS STAGE: localization/observations.parquet
+  High level: one row per (pole, frame) where geometry says the pole is in
+  the center camera's cone. Pole 6 gets 16 rows, frames 17–32; its label
+  frame is 33. Frame 29 carries two rows: pole 6 and pole 7.
+  Example record (pole 6, frame 29):
+    pole_index      6
+    frame_number    29
+    pole_id         geohash:druu9jqbs
+    pole_lat        44.413732
+    pole_lon        -72.016907
+    image_filename  000029443056_ROW_20240619.104856.jpg
+    source_lat      44.413401          <- car position at frame 29
+    source_lon      -72.017124
+    source_heading  20.03              <- degrees, NNE
+    batch           Batch-5-US_5_St_Johnsbury_(...)_all
+  From these: bearing car->pole = 25.1 deg, minus heading 20.03 = theta
+  5.1 deg off-axis, inside the 19.5 deg half-FOV, so it's in view.
+
+
+=====================================================================
+6. DETECTION
+=====================================================================
+
+ONE-LINER
+  - Box every pole in every flagged photo. Any pole, either side.
+
+IN PLAIN ENGLISH
+  Where are the poles in the photo? For every photo that localization
+  flagged, an off-the-shelf detector draws a box around everything that
+  looks like a utility pole. It has no idea which pole is which, or which
+  side of the road we care about; it just boxes every pole it sees, on
+  both sides. We run it once and save the boxes, so later steps can be
+  re-run without re-running the model.
+
+Slide: Zero-shot detection with Grounding-DINO
+- Open-vocabulary detector (IDEA-Research/grounding-dino-base) prompted
+  with the text "utility pole."
+- No training data needed, which matters because there are no bounding-box
+  labels in this dataset
+- Box threshold 0.25, class-agnostic NMS at IoU 0.5 to collapse stacked
+  boxes on the same pole
+- Run only on frames inside a pole's visibility window (1,456 images so
+  far, not all 12k), cached to parquet, resumable
+
+Slide: How well does it detect?
+- Detector recall 96.7% on the US 5 ground truth: 533 of 551 visible
+  poles got a box
+- ~4 boxes per image on average: the detector sees BOTH sides of the road
+  and doesn't know which side we labeled
+- The detector is not the bottleneck; the extra boxes are the matcher's
+  problem
+  (Speaker note: show one frame with all raw boxes drawn, including
+  left-of-road ones, to set up the matching difficulty.)
+
+Slide: Why not fine-tune?
+- A fine-tuned YOLO/RT-DETR would be faster and could learn "right side
+  only," but needs box labels we didn't have
+- The matcher's output IS a box-label set; fine-tuning is the natural next
+  step once matching is trusted
+- Detection is frozen during matcher tuning: re-running it renumbers boxes
+  and invalidates the hand annotation
+
+OUTPUT OF THIS STAGE: detection/bboxes.parquet
+  High level: one row per detected box, keyed by image and box_index;
+  a sentinel row (box_index = -1) marks images with zero detections.
+  5,790 boxes across 1,456 images. Frame 29 has 6 boxes for 2 expected
+  poles: the other 4 are left-of-road poles and a duplicate.
+  Example record (frame 29, box 3, which is pole 6):
+    image_filename  000029443056_ROW_20240619.104856.jpg
+    box_index       3
+    bbox_x1, y1     2310.1,   51.8      <- pixel corners, xyxy
+    bbox_x2, y2     2394.4, 1134.9         (a tall thin box right of center)
+    score           0.42
+    label           utility pole
+    model_id        IDEA-Research/grounding-dino-base
+    prompt          utility pole.
+    threshold       0.25
+    nms_iou         0.5
+  All six boxes in this frame, by center x:  1217, 1466, 1469, 1678,
+  2114, 2352.  Only the last two are right-of-road.
+
+
+=====================================================================
+7. MATCHING
+=====================================================================
+
+ONE-LINER
+  - Which box is our pole? Predict where it should be, take the closest.
+
+IN PLAIN ENGLISH
+  Which box is our pole? Localization says pole 6 is in this photo;
+  detection found six boxes. To connect them, we use the geometry again:
+  from where the car was and where the pole is, we can predict how far
+  left or right of center the pole should appear. Then we pair each
+  expected pole with the box closest to its predicted spot, making sure
+  no two poles grab the same box and that the left-to-right order is
+  preserved. If the nearest box is still too far away, we leave the pole
+  unmatched rather than guess. This is where the errors happen: when two
+  poles are far ahead and close together near the middle of the photo,
+  the geometry can't tell them apart.
+
+Slide: The matching problem
+- Per frame: n expected poles (from localization), m detected boxes (from
+  detection), usually m > n
+- Extra boxes are left-of-road poles, unlabeled poles, or false positives;
+  missing boxes are occlusions or detector misses
+- Need a one-to-one assignment that is allowed to leave things unmatched
+
+Slide: Predict, score, assign, gate
+- Predict: project each pole's angle to a pixel column with the calibrated
+  pinhole model
+- Score: cost = |predicted x - box center x|; poles are vertical, so only
+  the horizontal axis carries signal
+- Assign: monotonic alignment. Because x is monotonic in angle, the
+  optimal matching never crosses; sort both lists and align with skips
+  (a crossing assignment would be a bug, so this doubles as a check)
+- Gate: drop any pair further than 225 px apart; leftovers stay unmatched
+  and are recorded as signal, not forced
+
+Slide: The "predict" step: angle to pixel column
+- A pinhole camera maps a ray at angle theta to pixel column
+    x = c_x + f * tan(theta)
+  c_x = image center (1920); f = focal length in pixels
+- f is not documented anywhere, so it was calibrated from the data:
+  the edge of the view must land at the edge of the image, so
+    f = (W/2) / tan(half-FOV) = 1920 / tan(19.5 deg) ~= 5,420 px
+  (the 19.5 deg half-FOV is the fit from section 5)
+- Worked: pole 6 at frame 29, theta 5.1 deg -> tan 0.089
+    x_pred = 1920 + 5420 * 0.089 ~= 2404   (stored: 2399.7; box at 2352)
+- Two assumptions, each covered by a safeguard:
+  no lens distortion -> only trusted inside 18 deg (edge skip)
+  camera points along the heading (yaw 0) -> absorbed by the 225 px gate
+
+Slide: The "assign" step: aligning poles to boxes
+- theta is used for exactly two things: x_pred (via the pinhole model)
+  and the 18 deg edge skip. The cost, assignment, and gate are all in
+  pixels; boxes have no angle, so the pole is brought into pixel space
+- Sort poles by x_pred, sort boxes by box center x = (x1 + x2) / 2
+- Walk poles left to right. For each, scan boxes from a moving pointer,
+  take the closest (distances are V-shaped in sorted order, so stop at
+  the first increase), then move the pointer past the chosen box
+- Later poles can only take boxes further right: order is preserved,
+  skipped boxes become orphans, and a pole with no box to its right is
+  unmatched
+- Then gate: residual > 225 px -> unmatched_no_box
+- Frame 29:
+    poles by x_pred:  pole 7 (2187)   pole 6 (2400)
+    boxes by x:       1217 1466 1469 1678 2114 2352
+    pole 7: 970, 721, 718, 509, 73, 165 (up) -> box at 2114, res 73
+    pole 6: 48 -> box at 2352, res 48       both inside gate
+- Caveat: this is greedy, not globally optimal. The leftmost pole takes
+  its closest box first and never gives it back. In pole 6's far frames,
+  pole 7 took the box that was really pole 6's. A joint assignment
+  (DP alignment or Hungarian) is a cheap experiment, see Future Work
+
+Slide: Design choices that matter
+- Gate width was chosen by an offline sweep against the ground truth; the
+  gate is applied after assignment, so one run can be re-scored at every
+  threshold for free
+- Poles beyond 18 degrees off-axis are hard-skipped ("unmatched_edge")
+  rather than matched through the distorted part of the lens
+- Boxes below score 0.3 are discarded before matching
+- Each frame is matched independently; no temporal smoothing yet (this is
+  the biggest unused signal, see Future Work)
+
+Slide: Worked example, frame 29
+- Two expected poles: pole 7 at theta 2.8 deg -> x_pred 2187;
+  pole 6 at theta 5.1 deg -> x_pred 2400
+- Six boxes; after the score filter, candidates right of center are at
+  x = 2114 and 2352
+- Sorted alignment pairs (pole 7, 2114) and (pole 6, 2352); residuals
+  72 px and 48 px, both inside the 225 px gate
+- The four left-of-road boxes are orphaned. Ground truth agrees with
+  both assignments.
+  (Speaker note: draw the two predicted vertical lines and the six boxes
+  on the frame.)
+
+OUTPUT OF THIS STAGE: matching/pole_box_matches.parquet
+  High level: one row per (pole, frame) from observations, now carrying
+  the matched box_index or an unmatched reason. Unmatched rows are kept
+  on purpose. US 5: 467 matched, 213 unmatched_no_box, 18 unmatched_edge.
+  Example record (pole 6, frame 29):
+    frame_number    29
+    image_filename  000029443056_ROW_20240619.104856.jpg
+    pole_index      6
+    pole_id         geohash:druu9jqbs
+    box_index       3                 <- the box from the detection stage
+    theta_deg       5.1
+    x_pred          2399.7            <- where geometry said it would be
+    x_box           2352.3            <- where the detector found it
+    residual_px     47.5
+    status          matched           <- or unmatched_no_box / unmatched_edge
+    batch           Batch-5-US_5_St_Johnsbury_(...)_all
+
+
+=====================================================================
+8. EXPORT
+=====================================================================
+
+ONE-LINER
+  - One folder per pole: every photo of it, box drawn.
+
+IN PLAIN ENGLISH
+  Turn it around so it's organized by pole instead of by photo. Up to now
+  every table is one row per photo. The person who wants to inspect pole 6
+  wants a folder called "pole 6" with all fifteen photos of it, each with
+  the right box drawn on, plus a spreadsheet row saying where pole 6 is
+  and how many times we saw it. That folder and spreadsheet are the thing
+  you'd hand to VTrans, to a utility, or to a model that assesses the
+  pole's condition.
+
+Slide: The deliverable
+- Reorganizes the matches around the physical pole rather than the frame:
+  "give me pole X" returns every image of it with its box drawn
+- poles_index.csv: one row per (pole, image) with the box corners
+- poles_summary.csv: one row per pole with frame span and match counts
+- pole_assessment.csv: one row per pole with lat/lon and its image folder,
+  the hand-off point for condition assessment and GIS
+- by_pole/ folders of rendered frames, tight crops optional
+- Two exports per route: complete route, and the isolated-pole subset
+  (Speaker note: show pole 6's folder as a filmstrip: frame017_box0.jpg
+  through frame032_box5.jpg, the same pole boxed as the car approaches.)
+
+OUTPUT OF THIS STAGE: pole_export/complete_route/
+  High level: three CSVs plus one folder per pole. US 5: 52 poles, 698
+  index rows, 467 rendered images.
+  Example records for pole 6:
+    poles_summary.csv
+      pole_id             geohash:druu9jqbs
+      pole_index          6
+      n_frames_observed   16
+      n_matched           15
+      first_frame         17
+      last_frame          32
+      median_residual_px  47.4
+    pole_assessment.csv
+      pole_id     geohash:druu9jqbs
+      pole_index  6
+      lat         44.413732
+      lon         -72.016907
+      pole_dir    by_pole/pole06_druu9jqbs
+    poles_index.csv (frame 29 row)
+      pole_id        geohash:druu9jqbs
+      frame_number   29
+      box_index      3
+      bbox_x1..y2    2310.1, 51.8, 2394.4, 1134.9
+      residual_px    47.5
+      status         matched
+      rendered_path  by_pole/pole06_druu9jqbs/frame029_box3.jpg
+    by_pole/pole06_druu9jqbs/
+      frame017_box0.jpg  frame018_box0.jpg ... frame029_box3.jpg ...
+      frame032_box5.jpg   (15 files)
+
+
+=====================================================================
+9. EVALUATION & RESULTS
+=====================================================================
+
+ONE-LINER
+  - Hand-checked 690 answers. Detector fine; matcher confuses neighbors.
+
+IN PLAIN ENGLISH
+  How often did the matcher pick the right box? For one route, I went
+  through every (pole, photo) pair by hand and wrote down which box was
+  really the pole, or that there wasn't one. The matcher's answers are
+  scored against that. Because the detector's boxes are frozen, that
+  hand labeling was done once and reused for every version of the
+  matcher since. The results say the detector almost never misses a
+  pole; the mistakes come from the matcher choosing between boxes that
+  sit close together, and the mistakes mostly go away when a pole has
+  the photo to itself.
+
+Slide: Building ground truth
+- Hand-annotated every (pole, frame) in the US 5 observations with the box
+  index that really contains that pole, or "no box" / "not visible"
+- 690 pole-frames, 51 poles, annotated once against frozen detections;
+  scored against every matcher configuration since
+- Metrics are precision/recall/F1 on the "there is a box and it's this
+  one" decision, not overall accuracy, which the many correctly-empty
+  cases would inflate
+- A pole_visible flag separates detector misses from matcher misses
+
+  Ground truth record (pole 6, frame 29), evaluation/ground_truth.csv:
+    frame_number    29
+    image_filename  000029443056_ROW_20240619.104856.jpg
+    pole_index      6
+    pole_id         geohash:druu9jqbs
+    true_box_index  3          <- matcher said 3: correct_match
+    pole_visible    (blank = visible)
+
+Slide: Headline results (US 5 St Johnsbury, gate 225 px)
+  Match precision     63.9%
+  Match recall        55.9%
+  Match F1            59.7%
+  Detector recall     96.7%   (533 / 551 visible poles boxed)
+  Median residual     52.5 px on matched pairs
+- Category breakdown: 298 correct matches, 79 correct rejects, 108 wrong
+  box, 127 missed, 60 false matches, 18 detector misses
+
+Slide: Diagnosing the ceiling
+- In the wrong-box cases the correct box was present in the frame: the
+  matcher had the right answer available and picked a neighbor
+- Errors concentrate near image center (median |theta| 4.3 degrees), not
+  at the edges, so tightening the angle limit wouldn't help
+- Cause: the detector is side-blind. Near x = 1920 a far-ahead right pole
+  and a left-of-road pole sit close together and a single frame can't
+  separate them
+
+Slide: The same pole, frame by frame (pole 6's track)
+  frame  theta  x_pred  matched  true  residual  verdict
+   17     2.4    2146      0      4       11     wrong box
+   20     2.3    2138      0      4       37     wrong box
+   23     2.1    2114      4      2       98     wrong box
+   25     2.5    2159      5      0      186     wrong box
+   26     3.0    2206      -      0        -     missed
+   27     3.6    2262      3      3       47     correct
+   29     5.1    2400      3      3       48     correct
+   31     8.2    2700      5      5       87     correct
+   32    11.8    3057      5      6      170     wrong box
+- Far away (theta ~2 deg, near image center) the pole is a sliver among
+  several near-center boxes and the matcher picks wrong 9 frames running
+- Once it's closer and off-center (frames 27–31) every match is right
+- This is one pole; the pattern is the whole error story in miniature,
+  and it is why temporal consistency is the next step
+  (Speaker note: this is the honest slide. Pole 6 is the running example
+  precisely because it shows both the success and the failure mode.)
+
+Slide: The density result
+                          n    precision  recall   F1
+  Pole alone in frame    161     73.6%    75.4%   74.5%
+  All poles              690     63.9%    55.9%   59.7%
+- Same matcher, same gate: a pole with no competing pole in its frame
+  matches 15 F1 points better
+- Confirms the ceiling is assignment ambiguity from instance density, not
+  a fundamental limit of the geometry or detector
+- Only ~8% of poles are truly isolated (nearest neighbor > 100 m); poles
+  are ~48 m apart on these roads, so crowding is the normal case
+
+Slide: Is there an easier target object?
+- Studied all located object classes across 10 routes: trees and rocks
+  are clustered; "other" is a grab-bag; sparse classes like bridge piers
+  exist only as per-frame codes with no GPS
+- No sparse + abundant + located class exists in this data; density is a
+  property of road type, not object choice
+- So the improvement has to come from the matcher, not from changing
+  the target
+
+OUTPUT OF THIS STAGE: evaluation/reports/full_report.txt and
+isolated_report.txt (the text tables above), regenerated by
+matching/evaluate.py --batch <name> compare [--subset ...].
+
+
+=====================================================================
+10. LIMITATIONS & FUTURE WORK
+=====================================================================
+
+Slide: Limitations
+- Right-of-road poles and center camera only
+- Camera intrinsics are estimated from data, not measured; the wide-angle
+  region is thrown away
+- One route fully evaluated; VT 15/9 is onboarded and matched but not
+  yet ground-truthed
+- Only annotator-labeled poles get IDs; unlabeled visible poles are
+  ignored
+- Per-frame independence: the matcher doesn't use the fact that a pole's
+  track through ~15 frames should be smooth
+
+Slide: Next steps, in order of leverage
+- Temporal consistency: a wrong near-center pick is an outlier in an
+  otherwise smooth track; enforcing smoothness directly attacks the
+  wrong-box category (see pole 6's track)
+- Replace the greedy left-to-right alignment with a joint assignment
+  (DP sequence alignment or Hungarian) so one pole can't steal a
+  neighbor's box; cheap to try against the existing ground truth
+- Localize left-of-road poles (the XML already has the slot) to remove the
+  distractors and make every box explainable
+- Use the isolated-pole crops as appearance anchors to re-identify the
+  same pole in crowded frames
+- Real intrinsics/extrinsics from VAIL to replace the fitted FOV and
+  unlock the left/right cameras
+- Fine-tune a detector on the matched boxes as weak supervision
+
+Slide: Toward the deliverable
+- GIS export: one GeoPackage/ArcGIS layer of poles with image evidence
+  attached, the format VTrans can consume directly
+- Condition assessment via a vision-language model over each pole's crops
+  with structured outputs: lean, guy wire, visible damage, vegetation,
+  mounted equipment
+- Cross-survey change detection once a second year of imagery exists
+
+
+=====================================================================
+11. SUMMARY
+=====================================================================
+
+Slide: Three contributions
+- A geometric localization method that turns single-point pole labels
+  into multi-frame visibility windows, with the camera calibrated from
+  the data itself
+- A per-frame assignment matcher (predict, score, align, gate) with a
+  reusable hand-built ground truth and evaluation tooling
+- A diagnosis showing the remaining error is instance density, with
+  isolated poles matching at 74.5% F1 vs 59.7% overall, which points
+  directly at temporal consistency as the next step
+
+Slide: Works Cited
+Bonaccorso, Roberto. "Testing Program Saves Money, Extends Life of Poles."
+  Powerlines, Seattle City Light, 15 Sept. 2014,
+  powerlines.seattle.gov/2014/09/15/testing-program-saves-money-extends-life-of-poles/.
+"Inspection and Maintenance Standards." 52 Pa. Code § 57.198, Legal
+  Information Institute, Cornell Law School,
+  www.law.cornell.edu/regulations/pennsylvania/52-Pa-Code-SS-57-198.
+  Accessed 30 Sept. 2026.
+North American Wood Pole Council. "FAQs – Wood Utility Poles." North
+  American Wood Pole Council, woodpoles.org/tech-resources/faqs/.
+  Accessed 30 Sept. 2026.
+FHWA. "Utility Pole Crashes." FHWA-SA-21-024,
+  highways.dot.gov/sites/fhwa.dot.gov/files/2022-06/FHWA-SA-21-024_Utility_Pole_Crashes.pdf
+  [format as MLA once verified]

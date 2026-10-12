@@ -1,0 +1,198 @@
+DISCUSSION SECTION  (reworked, 2026-10-08)
+=========================================
+
+Replaces the three current Discussion slides (title, "Refocusing the problem",
+"Isolated Poles"). Six content slides plus the section title. All numbers are
+the existing greedy-matcher results already used in the Results slides
+(763 pole-frames, 56 poles, GATE_PX 225): F1 57.8% full route, 81.4% isolated.
+The joint-assignment improvement is NOT in these numbers; it appears only as a
+speaker note under "Next steps".
+
+Headline sentence (use on the section title slide, or as the first bullet of D1):
+
+    The method works for poles that are sparse in the frame, and applies
+    unchanged to sparser roadside objects such as speed limit signs.
+
+Suggested order: D1 headline -> D2 gradient -> D3 fair test -> D4 beyond poles
+-> D5 limitations -> D6 next steps -> D7 summary. If time is short, cut D3 and
+fold its first bullet into D2's speaker notes.
+
+
+-------------------------------------------------------------------------------
+SLIDE D1 — Discussion: the method is valid, crowding is the limit
+-------------------------------------------------------------------------------
+- When a pole is alone in its frame, the matcher finds the right box 81% of
+  the time (F1 81.4%), with 3 to 4 distractor boxes still present.
+- Across the full route, F1 drops to 57.8%. The only difference is that most
+  frames hold two or three catalog poles.
+- Neither the detector (97% recall) nor the geometry is the cause.
+- The cause is assignment. Near the vanishing point, neighboring poles land
+  about 130 px apart and a one-frame matcher cannot separate them. That is a
+  solvable matching problem, not a flaw in the method.
+
+Speaker notes:
+  This is the thesis slide; everything after it is evidence for one sentence.
+  On the detector: the correct box was present in the frame in every one of
+  the 130 wrong-box cases, so a better detector would change nothing. On the
+  geometry: when I control for distance, isolated poles beat crowded poles by
+  the widest margin at long range, 86% versus 43%. If the geometry were the
+  problem, that gap would close with distance, not widen.
+
+
+-------------------------------------------------------------------------------
+SLIDE D2 — Crowding is a gradient, not a switch
+-------------------------------------------------------------------------------
+Table (same matcher, same gate, same ground truth):
+
+    catalog poles in frame    pole-frames    precision    recall     F1
+    1                              176         81.7%      81.1%    81.4%
+    2                              264         66.1%      55.3%    60.2%
+    3                              267         47.1%      38.2%    42.2%
+    4                               56         34.8%      33.3%    34.0%
+
+- Each additional pole in the frame costs roughly 15 to 20 F1 points.
+- Precision is 93% when the pole is within 30 m and under 50% beyond 90 m.
+- Physical reason: 50 m of road spacing projects to ~130 px near the vanishing
+  point. The gate is 225 px. Column position alone cannot separate them.
+
+Speaker notes:
+  The one-pole row is the isolated subset by definition. The point of showing
+  all four rows is that the decline is smooth and monotone. Nothing else
+  changes between the rows: not the labels, not the detections, not the
+  parameters. This is what makes "crowding" a measurement rather than an
+  excuse. The four-pole row is only 56 pole-frames, so treat it as noisy.
+  (How the table was made: count distinct catalog poles per ground-truth
+  frame, tag each pole-frame with that count, score each bucket with the
+  same categories evaluate.compare uses.)
+
+
+-------------------------------------------------------------------------------
+SLIDE D3 — The isolated subset is a fair test
+-------------------------------------------------------------------------------
+- Isolated = exactly one catalog pole localized to the frame. Computed from the
+  observations table alone, no hand labeling, so it runs on any route.
+- Per pole-frame, not per pole: a pole is usually alone mid-approach and shares
+  its farther frames with neighbors. 176 of 763 pole-frames, 28 of 56 poles.
+- Only the competing catalog pole is removed. Isolated frames still average
+  3.4 detector boxes (left-of-road poles, unlabeled poles, false positives).
+- Not a distance effect: isolated and crowded pole-frames sit at similar
+  ranges (71 m vs 78 m median), and the gap persists when range is matched.
+- The residual 18% error when alone is an unlabeled pole next to the catalog
+  pole, never a left-side box. That is the annotation limit, not the matcher.
+
+Speaker notes:
+  This slide pre-empts "you picked the easy frames." Three facts: the
+  distractors are still there, the distances are the same, and nothing else
+  changed. Keep the definition bullets from the old "Refocusing the problem"
+  slide; the counts here (176 / 763 / 28 / 56) match the Results tables. The
+  old slide quoted 169 / 698 / 26 / 52, which came from the other export of
+  the route and should not be mixed with the 763-row results.
+
+
+-------------------------------------------------------------------------------
+SLIDE D4 — Beyond utility poles
+-------------------------------------------------------------------------------
+- Signs, bridge piers, and culverts are sparse in the frame on almost every
+  road. Poles on rural two-lane corridors are the hard case.
+- None of those objects carry a GPS point in this dataset, so they could not be
+  tested directly, and time did not allow another round of annotation.
+- Isolated poles are the stand-in: same pipeline, same distractor boxes, no
+  competing catalog object. F1 81.4%.
+- The pipeline is object-agnostic. Switching targets changes one annotation
+  field and one detector prompt; no new machinery.
+
+Speaker notes:
+  The only object-specific inputs are the labeled lat/lon in the XML and the
+  text string handed to Grounding-DINO. The walk-back, the projection, the
+  assignment, and the export do not know what a pole is. Density is a
+  property of the road, not the method: on roads where poles are sparse,
+  expect the 82% regime today. Say "sparse in the frame," not "sparse class";
+  poles on these routes are dense, which is exactly why they were the hard
+  case to start with.
+
+
+-------------------------------------------------------------------------------
+SLIDE D5 — Limitations
+-------------------------------------------------------------------------------
+- One route, one annotator: US 5 St Johnsbury, 56 poles, 763 pole-frames.
+  VT 15/9 is onboarded and matched but not ground-truthed.
+- The route is three capture sessions stitched under one label; continuity
+  holds only within a session.
+- The gate was tuned on the reported set. The sweep is flat from 200 to 300 px,
+  so the optimism is small, but the number is in-sample.
+- Right side, center camera, labeled poles only. FOV fitted from the data
+  (19.5° half-angle), yaw assumed zero, frames beyond 18° discarded.
+- Annotation completeness is unknown. Unlabeled poles are the main residual
+  error and a major distractor source. Counts are a floor, not a census.
+
+Speaker notes:
+  Short and unapologetic. Every item here is also a hook on the next slide.
+  Per-pole view, if asked: 47 of 56 poles have at least one correct frame;
+  12 poles score F1 >= 0.8 and 14 score below 0.3. The tail is harsher than
+  the per-frame average suggests.
+
+
+-------------------------------------------------------------------------------
+SLIDE D6 — Next steps, in order of leverage
+-------------------------------------------------------------------------------
+- Joint assignment: choose all of a frame's pairings together instead of
+  left to right. One function; re-scores against the existing ground truth
+  in seconds.
+- Keep low-score boxes in the pool and add a box-height term to the cost.
+  Height tracks 1/range (r = 0.80); near the vanishing point, height separates
+  what column cannot.
+- Temporal consistency: anchor each pole's identity in the frames where it is
+  alone, then carry it through the crowded frames. The isolated frames become
+  the mechanism, not just the diagnostic.
+- Then: localize left-of-road poles (the XML already has them), use the
+  forward-left and forward-right cameras with real intrinsics from VAIL,
+  export a GIS layer with image evidence, and run condition assessment over
+  the per-pole crops.
+
+Speaker notes:
+  The first item has already been tested offline against this same ground
+  truth: replacing the greedy walk with an exact one-to-one alignment moves
+  the full route from 57.8% to 66.0% F1 and leaves the isolated subset
+  unchanged, which is exactly what you would expect if crowding is the only
+  thing it fixes. It is not in the numbers on these slides; the reports for
+  it are in final_report/reports_for_presentation/joint_assignment/.
+  Why it works: 82 of the 270 wrong-box and missed errors were one pole
+  taking its neighbor's box first. Another 52 had the true box hidden by the
+  0.3 score filter before matching ever saw it. Both are policy choices.
+  Temporal: 199 of 270 errors belong to poles with at least three correct
+  frames elsewhere in their track, so an anchor exists for three quarters of
+  them.
+
+
+-------------------------------------------------------------------------------
+SLIDE D7 — Summary
+-------------------------------------------------------------------------------
+- A geometric localization method that turns single-point pole labels into
+  multi-frame visibility windows, with the camera calibrated from the data.
+- A predict-score-assign-gate matcher with a reusable hand-built ground truth
+  and offline tuning, so the answer key never has to be redone.
+- A diagnosis: the remaining error is crowding, measured as a gradient, not a
+  limit of the geometry or the detector.
+- A deliverable that exists today: per-pole image folders and CSVs, review-
+  ready for sparse poles and for any sparse, located roadside object.
+
+Speaker notes:
+  Close on the headline sentence. The project built the full loop: pipeline,
+  ground truth, measurement, diagnosis, controlled experiment, and a measured
+  path forward. Dense poles need the track and the box size, both of which
+  the pipeline already computes and neither of which was in scope this
+  semester. That is a scoping statement, not an apology.
+
+
+-------------------------------------------------------------------------------
+NOTES ON ADJACENT SLIDES (small fixes, outside the Discussion section)
+-------------------------------------------------------------------------------
+- "Results – Impetus for Subset": the bullet "Low residual ... indicates
+  geometry is sound" is weak; wrong matches have nearly the same residual as
+  correct ones (58 px vs 47 px). Reword to: "Residual shows the gate is sized
+  right; the isolated subset shows the geometry is right."
+- "Detection Performance": 96.7% / 533 of 551 is from the other export of the
+  route. The 763-row set, used everywhere else, is 97.0% / 587 of 605.
+- "Three Sub-Problems": typo "pole pole". "Export": typo "per-pole pole."
+- "Evaluation Procedure" currently sits after the Appendix; it belongs before
+  "Results – Full Route".
