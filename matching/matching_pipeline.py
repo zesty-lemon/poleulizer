@@ -4,7 +4,7 @@ import pandas as pd
 from config import paths
 from config.paths import RoutePaths
 from detection.run_detection import load_detections
-from localization.localization_pipeline import load_observations, CENTER_HALF_FOV_DEG
+from localization.localization_pipeline import load_observations, CENTER_HALF_FOV_DEG, CENTER_YAW_DEG
 from util import localization_utils as lu
 from util.localization_utils import predict_x_px
 
@@ -33,7 +33,7 @@ def append_bearings_onto_df_row(pole_row):
         pole_row.source_heading,
         pole_row.pole_lat,
         pole_row.pole_lon,
-        view_yaw=0.0
+        view_yaw=CENTER_YAW_DEG,
     )
     return theta
 
