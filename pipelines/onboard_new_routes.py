@@ -1,3 +1,5 @@
+import sys
+
 from config import paths
 from config.paths import RoutePaths
 from scripts.build_pole_catalog import run_build_pole_catalog_pipeline
@@ -91,7 +93,11 @@ def onboard_new_route_and_run_pipeline(batch: str | None = None,
 
     # ----- Download Street Images from VAIL Server
     if download_street_images:
-        run_download_street_images_pipeline(route)
+        download_rc = run_download_street_images_pipeline(route)
+        if download_rc != 0:
+            print(f"error: download step exited with code {download_rc} "
+                  f"(incomplete download or inbox problem); continuing with the rest of the pipeline",
+                  file=sys.stderr)
 
     # ----- Build Pole Catalog (geohash labeled poles from this route's XML)
     if build_pole_catalog:
